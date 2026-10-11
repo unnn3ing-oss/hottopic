@@ -14,9 +14,9 @@
 
 ## 2. 範圍
 
-**包含**：新聞列表（搜尋、分類篩選、排序）、新增、編輯、複製標題、複製留言、標記已使用、貼網址自動帶入原始標題、分類清單維護（在試算表內）。
+**包含**：新聞列表（搜尋、分類篩選、排序）、新增、編輯、刪除、複製標題、複製留言、標記已使用、貼網址自動帶入原始標題、分類清單維護（在試算表內）。
 
-**不包含**（YAGNI）：自動撈新聞、多人協作、使用紀錄歷史、冷卻天數與顏色警示（使用者已明確不要）、刪除功能（需要時直接在試算表刪列）。
+**不包含**（YAGNI）：自動撈新聞、多人協作、使用紀錄歷史、冷卻天數與顏色警示（使用者已明確不要）、垃圾桶／復原刪除（誤刪時用試算表的版本記錄還原）。
 
 ## 3. 已確認的決策
 
@@ -28,7 +28,7 @@
 | 複製留言格式 | `小編文` 換一行 `https://news.tvbs.com.tw/news/編號`（不空行） |
 | 時間與次數 | 只在按「標記已使用」時更新；次數 +1 |
 | 自動抓標題 | 要，抓不到時手動輸入 |
-| 預覽 | 已核准的互動預覽：https://claude.ai/artifact/QegKJLLiAjEfG1R1qwsHU9 |
+| 預覽 | 互動預覽（含刪除）：https://claude.ai/artifact/QegKJLLiAjEfG1R1qwsHU9 |
 
 ## 4. 資料模型（試算表）
 
@@ -69,6 +69,12 @@
 ### 編輯
 編號、網址、原始標題唯讀；分類、已改標題、小編文可改。
 
+### 刪除
+- 入口在「編輯」視窗左下角的「刪除這則」，列表上不放刪除鈕，避免誤觸。
+- 第一次按變成紅底「再按一次刪除（無法復原）」，4 秒內再按才生效；逾時恢復原狀。
+- 伺服器端在鎖內依 `id` 找到該列並刪除整列；找不到時回傳「這則已不存在」，畫面重新整理列表。
+- 刪除是永久的，不做垃圾桶。誤刪可在 Google 試算表的「版本記錄」還原。
+
 ### 複製標題
 把「已改標題」原樣（含換行）寫入剪貼簿。
 
@@ -99,7 +105,7 @@ Google 試算表（私人，雲端硬碟）
 ```
 src/
   appsscript.json   時區 Asia/Taipei；webapp: executeAs USER_DEPLOYING, access MYSELF
-  Code.gs           doGet、listItems、addItem、updateItem、markUsed、fetchTitle
+  Code.gs           doGet、listItems、addItem、updateItem、markUsed、deleteItem、fetchTitle
   lib.js            純函式：extractId、buildComment、cleanTitle、normalizeUrl（也可被 node 測試載入）
   index.html        介面（沿用已核准預覽的版面與互動）
 test/
@@ -129,7 +135,7 @@ docs/superpowers/specs/  本文件
 ## 9. 測試策略
 
 - **單元測試（node:test）**：`extractId`（含 `cars/4032757`、多段數字、無數字、帶 query 的網址）、`buildComment`（有／無小編文、`N` 開頭編號）、`cleanTitle`（各種後綴）、`normalizeUrl`。
-- **手動驗證清單**（部署後在實機執行）：新增／重複／編輯／標記已使用／兩種複製（含換行貼到 IG、Threads 檢查）／自動抓標題成功與失敗／手機版面。
+- **手動驗證清單**（部署後在實機執行）：新增／重複／編輯／刪除（含逾時取消、刪除後列表更新）／標記已使用／兩種複製（含換行貼到 IG、Threads 檢查）／自動抓標題成功與失敗／手機版面。
 - Apps Script 本身無法在本機執行，`Code.gs` 的行為由手動驗證清單覆蓋。
 
 ## 10. 已知風險與待驗證
