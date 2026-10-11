@@ -16,7 +16,7 @@
 
 **包含**：新聞列表（搜尋、分類篩選、排序）、新增、編輯、刪除、複製標題、複製留言、標記已使用、貼網址自動帶入原始標題、分類清單維護（在試算表內）。
 
-**不包含**（YAGNI）：自動撈新聞、多人協作、使用紀錄歷史、冷卻天數與顏色警示（使用者已明確不要）、垃圾桶／復原刪除（誤刪時用試算表的版本記錄還原）、瀏覽器外掛一鍵加入（僅在兩層抓標題都被擋時才另案考慮）。
+**不包含**（YAGNI）：自動撈新聞、多人協作、使用紀錄歷史、冷卻天數與顏色警示（使用者已明確不要）、垃圾桶／復原刪除（誤刪時用試算表的版本記錄還原）、瀏覽器外掛一鍵加入（僅在伺服器端抓標題也被擋時才另案考慮）。
 
 ## 3. 已確認的決策
 
@@ -29,7 +29,7 @@
 | 時間與次數 | 只在按「標記已使用」時更新；次數 +1 |
 | 多版改標 | 一則新聞可有多個改標，用左右滑動切換；使用紀錄同時記在整則新聞與被標記的那一版（預設做法，待使用者確認） |
 | 小編文 | 整則新聞共用一份，不隨改標版本變化（預設做法，待使用者確認） |
-| 自動抓標題 | 要。沿用使用者外掛已驗證的做法：`fetch` 下載原始碼 → `DOMParser` 解析 → 依序讀標題 meta；不用 AI、爬蟲 API 或第三方中繼。瀏覽器端優先，Apps Script 伺服器端備援，最後手動輸入（細節見 §5） |
+| 自動抓標題 | 要。瀏覽器網頁直接 `fetch` 已實測被 TVBS 的 CORS 擋下，所以改由 Apps Script 伺服器端抓取；解析沿用使用者外掛的做法（讀 meta、依序找標題來源），不用 AI、爬蟲 API 或第三方中繼；抓不到就手動輸入（細節見 §5） |
 | 預覽 | 互動預覽（含多版改標、刪除）：https://claude.ai/artifact/QegKJLLiAjEfG1R1qwsHU9 |
 
 ## 4. 資料模型（試算表）
@@ -108,31 +108,27 @@
 
 ### 自動抓標題
 
-**解析方式（沿用使用者外掛已驗證的做法）**：下載文章原始碼 → 解析 HTML → 依序找標題來源，取第一個非空值 → 清理 → 帶入「原始標題」。不使用 AI、爬蟲 API 或第三方 CORS 中繼。
+**實測結論（2026-10-11）**：使用者在 `https://example.com` 的瀏覽器 Console 對 `https://news.tvbs.com.tw/cars/4032757` 執行 `fetch`，得到 `blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource`（網站回應 HTTP 200，但沒有允許跨網站讀取的標頭）。因此**任何一般網頁（包含 Apps Script 的網頁）都無法在瀏覽器端直接讀取 TVBS 文章**；使用者的外掛抓得到，是因為外掛有額外的網站存取權。瀏覽器端 `fetch` + `DOMParser` 這條路不納入設計。
 
-- **標題來源順序（預設，待使用者以外掛實際順序為準）**：`og:title` → `twitter:title` → `<title>` → 第一個 `<h1>`。
-- **清理**：去除前後空白、把連續空白與換行壓成單一空白；去除結尾的網站名稱後綴，格式為「分隔符號（`｜`、`|`、`-`、`–`、`—`）＋已知網站名稱」，已知名稱清單預設含 TVBS 相關名稱（寫在 `lib.js`，格式待使用者外掛的處理方式確認）。沒有符合已知名稱的後綴就不動，以免誤刪標題本身的內容。
-- 兩種解析器共用同一份來源順序與後綴清單：瀏覽器端用 `DOMParser`；Apps Script 沒有 `DOMParser`，伺服器端用規則運算式讀 meta，並自行還原 HTML 實體（`&amp;`、`&quot;`、`&#39;`、數字實體）。
+**做法：由 Apps Script 伺服器端抓取，解析沿用外掛的邏輯**
 
-**三層備援（由前到後，任一層成功就停止）**
+1. `Code.gs` 的 `fetchTitle(url)` 用 `UrlFetchApp.fetch` 下載原始碼：`muteHttpExceptions: true`、跟隨轉址、帶一般瀏覽器的 `User-Agent` 與 `Accept-Language: zh-TW`，以 UTF-8 解碼，只取前 200 KB（標題都在 `<head>`）。
+2. 解析（Apps Script 沒有 `DOMParser`，改用規則運算式）：找出所有 `<meta>` 標籤並讀取屬性（不依賴屬性順序，單雙引號皆可），依序找標題來源，取第一個非空值，並還原 HTML 實體（`&amp;`、`&quot;`、`&#39;`、數字實體）。
+   - **來源順序（預設，以使用者提供的 TVBS 實際標記與外掛順序為準）**：`og:title` → `twitter:title` → `<title>` → 第一個 `<h1>`。
+3. 清理：去除前後空白、把連續空白與換行壓成單一空白；去除結尾的網站名稱後綴，格式為「分隔符號（`｜`、`|`、`-`、`–`、`—`）＋已知網站名稱」，已知名稱清單（`SITE_SUFFIXES`，預設含 TVBS 相關名稱）寫在 `lib.js`。沒有符合已知名稱的後綴就不動，以免誤刪標題本身的內容。
+4. 前端收到結果後帶入「原始標題」，標示來源（例如「來自 og:title」），使用者可直接修改。
 
-| 層 | 做法 | 能成功的條件 | 失敗時 |
-|---|---|---|---|
-| 1 | 瀏覽器端 `fetch(url)` + `DOMParser`（與外掛相同） | 該網站回應允許跨來源讀取（CORS）。外掛有額外的網站存取權、不受 CORS 限制，一般網頁沒有，所以「外掛抓得到」不保證「網頁抓得到」 | 無聲進入第 2 層 |
-| 2 | Apps Script 伺服器端 `UrlFetchApp.fetch` + 同樣的來源順序 | 網站不擋 Google 伺服器的請求 | 進入第 3 層 |
-| 3 | 手動輸入 | 一定可用 | 提示「抓不到標題，請手動輸入」，不阻擋儲存 |
+**失敗處理**：狀態碼不是 200、逾時（8 秒）、回傳的是驗證或防機器人頁面、找不到任何標題來源時，回傳空值並提示「抓不到標題，請手動輸入」，不阻擋儲存。只允許 `http`／`https` 網址。非 UTF-8 的網頁可能亂碼，需手動修正。
 
-- 每層逾時 8 秒；只允許 `http`／`https` 網址；以 UTF-8 解碼，非 UTF-8 的網頁可能亂碼，需手動修正。
-- 畫面標示標題來源（例如「來自 og:title」），使用者可直接修改。
-- **實測決定哪一層可用**：實作的第一步先在使用者的瀏覽器與部署後的 Apps Script 驗證第 1、2 層。兩層都被擋時，才另案考慮「瀏覽器外掛在文章頁一鍵把網址與標題送進熱門新聞庫」（本次範圍不含）。
+**備案（僅在伺服器端也被 TVBS 擋下時才另案討論）**：沿用使用者現有的外掛，在文章頁一鍵把網址與標題送進熱門新聞庫，或讓外掛代為抓取後回傳給網頁。這需要外掛的程式碼，不在本次範圍內。
 
 ## 6. 架構
 
 ```
-瀏覽器（HTML Service 頁面）──① fetch + DOMParser──▶ 文章網頁（網站允許跨來源讀取時）
+瀏覽器（HTML Service 頁面）
    │ google.script.run
    ▼
-Code.gs  ──  列表／新增／更新／標記已使用／刪除 ──② UrlFetchApp──▶ 文章網頁
+Code.gs  ──  列表／新增／更新／標記已使用／刪除／抓標題 ──UrlFetchApp──▶ 文章網頁
    │ SpreadsheetApp（綁定的試算表）
    ▼
 Google 試算表（私人，雲端硬碟）
@@ -142,7 +138,7 @@ Google 試算表（私人，雲端硬碟）
 ```
 src/
   appsscript.json   時區 Asia/Taipei；webapp: executeAs USER_DEPLOYING, access MYSELF
-  Code.gs           doGet、listItems、addItem、updateItem、markUsed、deleteItem、fetchTitle（第 2 層）
+  Code.gs           doGet、listItems、addItem、updateItem、markUsed、deleteItem、fetchTitle
   lib.js            純函式與常數：extractId、buildComment、cleanTitle、normalizeUrl、titleFromHtml（規則運算式版）、TITLE_SOURCES、SITE_SUFFIXES（也可被 node 測試載入）
   index.html        介面（沿用已核准預覽的版面與互動）
 test/
@@ -152,8 +148,8 @@ docs/superpowers/specs/  本文件
 
 ### 單元職責
 - `lib.js`：不碰 Google API 的純邏輯，可獨立測試。
-- `Code.gs`：唯一接觸試算表的地方，也負責第 2 層的外部抓取；每個對外函式檢查輸入並回傳 `{ ok, data | error }`。
-- `index.html`：負責呈現、呼叫 `google.script.run`，以及第 1 層的 `fetch` + `DOMParser`（來源順序與後綴清單取自 `lib.js`），不含資料規則。
+- `Code.gs`：唯一接觸試算表與外部網址的地方；每個對外函式檢查輸入並回傳 `{ ok, data | error }`。
+- `index.html`：只負責呈現與呼叫 `google.script.run`，不含資料規則。
 
 ## 7. 錯誤處理與一致性
 
@@ -166,19 +162,19 @@ docs/superpowers/specs/  本文件
 ## 8. 安全與隱私
 
 - 試算表維持私人；Web App 只允許本人存取，以本人身分執行。
-- 自動抓標題只取純文字標題：`DOMParser` 產生的文件不會執行網頁裡的 script，也不會載入圖片等資源；抓回的文字一律以 `textContent` 或轉義後輸出，不把網頁內容當 HTML 插入畫面。
+- 自動抓標題只取純文字標題：伺服器端以規則運算式讀取，不執行網頁內容；回給前端的只有一段文字，前端一律以 `textContent` 或轉義後輸出，不把網頁內容當 HTML 插入畫面。
 - 不儲存任何金鑰；不使用外部資料庫。
 
 ## 9. 測試策略
 
-- **單元測試（node:test）**：`extractId`（含 `cars/4032757`、多段數字、無數字、帶 query 的網址）、`buildComment`（有／無小編文、`N` 開頭編號）、`cleanTitle`（各種後綴、全形與半形分隔符號、標題本身含 `｜` 時不誤刪）、`normalizeUrl`、`titleFromHtml`（`og:title` 優先並依序退回、屬性順序顛倒的 meta、單雙引號、HTML 實體、前後空白與換行）。瀏覽器端的 `DOMParser` 版本在 Playwright 中以相同的測試網頁驗證，確認兩種解析器結果一致。
+- **單元測試（node:test）**：`extractId`（含 `cars/4032757`、多段數字、無數字、帶 query 的網址）、`buildComment`（有／無小編文、`N` 開頭編號）、`cleanTitle`（各種後綴、全形與半形分隔符號、標題本身含 `｜` 時不誤刪）、`normalizeUrl`、`titleFromHtml`（`og:title` 優先並依序退回、屬性順序顛倒的 meta、單雙引號、HTML 實體、前後空白與換行）。`<head>` 之外的假標籤不誤判。另加入一份使用者提供的 **TVBS 真實文章標記**作為測試資料（`test/fixtures`），確保解析規則對真實格式有效。
 - **手動驗證清單**（部署後在實機執行）：新增／重複／編輯／刪除（含逾時取消、刪除後列表更新）／標記已使用／兩種複製（含換行貼到 IG、Threads 檢查）／自動抓標題成功與失敗／手機版面。
 - **輪播互動測試（Playwright + Chromium）**：載入 `index.html`（以假資料取代 `google.script.run`），驗證手指（逐點觸控事件）、滑鼠拖曳、橫向滾輪、鍵盤、按鈕五種切換方式都能換到正確版本並對齊，拖曳不選取文字，直向滾輪不誤換版，以及桌面與手機寬度的版面（無橫向溢出、原始標題與「原文」同排）。預覽版已用同一套測試驗證 23 項。
 - Apps Script 本身無法在本機執行，`Code.gs` 的行為由手動驗證清單覆蓋。
 
 ## 10. 已知風險與待驗證
 
-1. **自動抓標題在網頁裡能否成功**：使用者的外掛已驗證 `fetch` + `DOMParser` 抓得到，但外掛不受 CORS 限制，網頁不一定。第 1 層（瀏覽器端）取決於 TVBS 是否允許跨來源讀取，第 2 層（Apps Script 伺服器）取決於 TVBS 是否擋 Google 伺服器；Claude 的執行環境連 TVBS 會被網路代理擋下，無法代為驗證。兩層都被擋時退回手動輸入，不影響其他功能。
+1. **Apps Script 伺服器是否抓得到 TVBS 標題**：瀏覽器端已確定被 CORS 擋下；伺服器端不受 CORS 限制，但 TVBS 可能擋掉來自 Google 的請求。Claude 的執行環境連 TVBS 會被網路代理擋下，無法代為驗證，需要使用者在自己的 Apps Script 實測，或在實作第一步驗證。被擋時退回手動輸入，不影響其他功能。
 2. **Apps Script 網頁內的剪貼簿權限**：HTML Service 在 iframe 內，`navigator.clipboard` 可能被限制，已設計 `execCommand` 退路，需在實機驗證。
 3. **部署需要使用者操作**：Claude 在此環境無法登入使用者的 Google 帳號，部署（`clasp push` 或手動貼入 Apps Script 編輯器）與授權由使用者完成，我會提供逐步說明。
 4. **效能**：資料量預期為數百到數千列，整表讀取即可；若超過約 5,000 列再考慮分頁。
