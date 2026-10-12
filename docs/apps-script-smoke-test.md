@@ -6,10 +6,10 @@
 
 ## 1. 建立測試用 Apps Script
 
-專案可以是「從試算表開的」（擴充功能 → Apps Script），也可以是「在 script.google.com 直接新增的獨立專案」，**兩種都行**。程式一律用試算表 ID（`SHEET_ID`）開啟試算表，不依賴「綁定」。
+建議從試算表開專案（擴充功能 → Apps Script），日後比較好找；在 script.google.com 直接新增的獨立專案也行，**兩種都可以**。程式一律用試算表 ID（`SHEET_ID`）開啟試算表，不依賴「綁定」。
 
 1. 新增一份空白 Google 試算表，記下網址中的 ID：`https://docs.google.com/spreadsheets/d/`**`這一段`**`/edit`。
-2. 開啟 Apps Script 專案 → 專案設定 → 勾選「在編輯器中顯示 appsscript.json 資訊清單檔案」，把內容換成：
+2. 在這份試算表選 擴充功能 → Apps Script 開啟專案 → 專案設定 → 勾選「在編輯器中顯示 appsscript.json 資訊清單檔案」，把內容換成：
 
 ```json
 {
@@ -27,11 +27,13 @@
 > 為什麼不是 `spreadsheets.currentonly`：那個範圍只適用「綁定在試算表上」的專案；用 `openById` 開檔需要完整的 `spreadsheets` 範圍。改過範圍後，下面的 `authorize` 要重新執行一次。
 
 3. 專案設定 → 指令碼屬性，新增兩個：
-   - `API_TOKEN`：48 個字元的隨機字串。在任何網頁的 Console 貼這行就能產生：
+   - `API_TOKEN`：48 個字元的隨機字串。開 `https://example.com`，F12 → Console 貼這行，產生後會自動複製到剪貼簿，直接貼進屬性值；**這個分頁先別重新整理**，第 2 節測試還要用 `TOKEN`：
 
      ```js
-     Array.from(crypto.getRandomValues(new Uint8Array(24)), b => b.toString(16).padStart(2, '0')).join('')
+     var TOKEN = Array.from(crypto.getRandomValues(new Uint8Array(24)), b => b.toString(16).padStart(2, '0')).join(''); copy(TOKEN); TOKEN.length
      ```
+
+     最後一個值應顯示 `48`。
 
    - `SHEET_ID`：第 1 步記下的試算表 ID。
 
@@ -119,10 +121,10 @@ function fetchTitleSpike_(url) {
 
 ## 2. 從瀏覽器測試
 
-開啟 `https://example.com`，按 F12 開 Console，先貼這段定義（填入你的網址與密碼）：
+回到 `https://example.com` 那個分頁的 Console（`TOKEN` 還在；若已重新整理，先執行 `var TOKEN = '從指令碼屬性複製的值'`），貼這段定義（填入你的網址）：
 
 ```js
-const URL_ = 'PASTE_EXEC_URL', TOKEN = 'PASTE_TOKEN';
+var URL_ = 'PASTE_EXEC_URL';
 async function call(action, args, token = TOKEN, contentType = 'text/plain;charset=utf-8') {
   const t0 = performance.now();
   const r = await fetch(URL_, { method: 'POST', redirect: 'follow', credentials: 'omit',
