@@ -57,7 +57,15 @@ button{font:inherit;color:inherit;cursor:pointer}
 .vcount{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-radius:4px;padding:0 5px}
 
 /* ---------- 右：工作台 ---------- */
-.pane-r{display:flex;flex-direction:column;min-width:0}
+.pane-r{min-width:0;padding:16px;background:var(--bg)}
+.bigcard{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:12px;min-height:100%}
+.bigcard .meta{display:flex;gap:8px 12px;flex-wrap:wrap;align-items:center;font-size:13px;color:var(--muted)}
+.bigcard .used{margin-left:auto}
+.bigcard .note{font-size:14px;white-space:pre-wrap;overflow-wrap:anywhere;margin:0}
+.bigcard .acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:auto}
+.bigcard .src{display:flex;gap:8px;align-items:center;font-size:13px;color:var(--muted);border-top:1px solid var(--line);padding-top:10px}
+.bigcard .src .ot{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tag{font-size:11px;border:1px solid var(--line);border-radius:4px;padding:0 5px;flex:none}
 .ph{padding:14px 18px 8px;display:flex;flex-direction:column;gap:6px}
 .ph .meta{display:flex;gap:8px;align-items:center;font-size:12px;color:var(--muted);flex-wrap:wrap}
 .ph .id{font-family:var(--mono)}
@@ -86,13 +94,13 @@ button{font:inherit;color:inherit;cursor:pointer}
 .kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:0 5px}
 
 
-.car{margin:0 18px;display:flex;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;overscroll-behavior-x:contain;background:var(--bg);border:1px solid var(--line);border-radius:10px;cursor:grab}
+.car{margin:0;display:flex;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;overscroll-behavior-x:contain;background:var(--bg);border:1px solid var(--line);border-radius:10px;cursor:grab}
 .car::-webkit-scrollbar{display:none}
 .car.dragging{scroll-snap-type:none;cursor:grabbing;user-select:none}
 .slide{flex:0 0 100%;scroll-snap-align:start;scroll-snap-stop:always;min-width:0;padding:14px 16px;display:flex;flex-direction:column;gap:8px}
-.slide .t{font-size:19px;font-weight:700;line-height:1.5;margin:0;overflow-wrap:anywhere}
+.slide .t{font-size:19px;font-weight:700;line-height:1.5;margin:0;overflow-wrap:anywhere;white-space:pre-wrap}
 .slide .m{font-size:12px;color:var(--muted)}
-.carnav{margin:8px 18px 0;display:flex;align-items:center;gap:10px}
+.carnav{margin:0;display:flex;align-items:center;gap:10px}
 .arrow{width:32px;height:32px;border-radius:50%;border:1px solid var(--line);background:var(--surface);font-size:18px;line-height:1;display:grid;place-items:center;padding:0}
 .arrow:hover:not([disabled]){border-color:var(--accent);color:var(--accent)}
 .arrow[disabled]{opacity:.35;cursor:not-allowed}
@@ -108,7 +116,7 @@ button{font:inherit;color:inherit;cursor:pointer}
 
 <div class="stage">
   <div>
-    <p class="cap">電腦版：左邊清單、右邊工作台，點清單就切換右側，不再開彈窗；改標沿用現行的左右滑動（含滑鼠拖曳、方向鍵）並新增 ‹ › 按鈕；手機版為清單全寬，點進去是詳情頁，底部固定「複製標題」「標記已使用」</p>
+    <p class="cap">電腦版：左邊清單、右邊一張大卡片，點清單就切換。改標保留換行，「複製標題」複製目前顯示的那一版，「複製留言」＝小編文（第一行）＋原始網址（第二行）。手機版為清單全寬，點進去是詳情頁。</p>
     <div class="app">
       <div class="topbar">
         <h1>熱門新聞庫</h1>
@@ -127,30 +135,19 @@ button{font:inherit;color:inherit;cursor:pointer}
           <div class="rows" id="rows" role="listbox"></div>
         </section>
         <section class="pane-r">
-          <div class="ph">
-            <div class="meta"><span class="cat" id="pCat"></span><span class="id" id="pId"></span><span id="pUsed"></span><span style="margin-left:auto"><button class="btn small ghost" style="padding:0 6px">編輯</button></span></div>
-            <p class="orig">原始標題：<b id="pOrig"></b></p>
-          </div>
-          <div class="stack">
-            <div>
-              <div class="sec"><span>改標版本（左右滑動，或按 ‹ ›）</span><span class="kbd">← →</span></div>
-              <div class="car" id="car" tabindex="0" aria-label="改標版本"></div>
-              <div class="carnav"><button class="arrow" id="prev" aria-label="上一版">‹</button><div class="dots" id="dots"></div><button class="arrow" id="next" aria-label="下一版">›</button><span class="cnt" id="vcnt"></span><span class="sp"></span><button class="copy" data-copy="title">複製這一版</button></div>
+          <article class="bigcard">
+            <div class="meta"><span class="cat" id="pCat"></span><span class="id" id="pId"></span><span id="pUsed" class="used"></span></div>
+            <div class="car" id="car" tabindex="0" aria-label="改標，可左右滑動或用方向鍵切換"></div>
+            <div class="carnav"><button class="arrow" id="prev" aria-label="上一個改標">‹</button><div class="dots" id="dots"></div><button class="arrow" id="next" aria-label="下一個改標">›</button><span class="cnt" id="vcnt"></span></div>
+            <p class="note" id="pNote"></p>
+            <div class="acts">
+              <button class="btn copy" id="cTitle">複製標題</button>
+              <button class="btn copy" id="cNote">複製留言</button>
+              <button class="btn" id="mark">標記已使用</button>
+              <button class="btn" id="edit">編輯</button>
             </div>
-            <div class="block">
-              <div class="hd"><span>小編文</span><button class="copy" data-copy="note">複製</button></div>
-              <p id="pNote"></p>
-            </div>
-            <div class="block">
-              <div class="hd"><span>留言網址</span><button class="copy" data-copy="url">複製</button></div>
-              <div class="url" id="pUrl"></div>
-            </div>
-          </div>
-          <div class="dock">
-            <div class="grow">複製後可直接「標記已使用」</div>
-            <button class="btn" id="copyAll">複製標題＋網址</button>
-            <button class="btn primary" id="mark">標記已使用</button>
-          </div>
+            <div class="src"><span class="tag">原始</span><span class="ot" id="pOrig"></span></div>
+          </article>
         </section>
       </div>
     </div>
@@ -161,11 +158,11 @@ button{font:inherit;color:inherit;cursor:pointer}
 <script>
 var DATA=[
  {id:'4032757',cat:'社會',o:'北市清晨驚傳隨機砍人　62歲男當場落網',used:'從未使用',fresh:1,
-  v:['北市驚魂！62歲男清晨持刀砍人　警方三分鐘到場壓制','【獨家】隨機攻擊釀3傷　嫌犯供稱「心情不好」'],note:'路人拍下警方壓制畫面，市民直呼嚇壞。'},
+  v:['北市驚魂！62歲男清晨持刀砍人\n警方三分鐘到場壓制','【獨家】隨機攻擊釀3傷\n嫌犯供稱「心情不好」'],note:'路人拍下警方壓制畫面，市民直呼嚇壞。'},
  {id:'1358062',cat:'健康',o:'每天一杯咖啡真的傷胃？醫師揭3種人別碰',used:'12 天前',
   v:['咖啡喝錯＝傷胃？醫曝3類人別碰'],note:'醫師提醒：空腹喝咖啡對胃酸分泌影響最大。'},
  {id:'4032101',cat:'國際',o:'日本強震規模6.8　東京搖晃明顯',used:'3 天前',
-  v:['日本規模6.8強震　東京大樓搖晃','快訊／日本強震！氣象廳：留意餘震'],note:'目前暫無傳出災情。'},
+  v:['日本規模6.8強震\n東京大樓搖晃','快訊／日本強震！氣象廳：留意餘震'],note:'目前暫無傳出災情。'},
  {id:'4031988',cat:'娛樂',o:'金曲歌后宣布年底開唱　門票秒殺',used:'28 天前',
   v:['歌后年底開唱！門票開賣秒殺'],note:'粉絲搶票大塞車，官方加開場次。'},
  {id:'4031720',cat:'生活',o:'超商新品聯名開賣　限量周邊預告',used:'45 天前',
@@ -190,15 +187,14 @@ function render(){
   $('rows').innerHTML='';
   L.forEach(function(d,i){
     var r=document.createElement('div');r.className='row';r.setAttribute('role','option');r.setAttribute('aria-selected',i===cur);
-    r.innerHTML='<span class="bar"></span><div><h3>'+d.v[0]+'</h3><div class="sub"><span class="cat">'+d.cat+'</span><span>'+d.id+'</span>'+(d.v.length>1?'<span class="vcount">'+d.v.length+' 版</span>':'')+'</div></div><div class="badge'+(d.fresh?' fresh':'')+'">'+d.used+'</div>';
+    r.innerHTML='<span class="bar"></span><div><h3>'+d.v[0].replace(/\n/g,' ')+'</h3><div class="sub"><span class="cat">'+d.cat+'</span><span>'+d.id+'</span>'+(d.v.length>1?'<span class="vcount">'+d.v.length+' 版</span>':'')+'</div></div><div class="badge'+(d.fresh?' fresh':'')+'">'+d.used+'</div>';
     r.onclick=function(){cur=i;sel=0;render()};
     $('rows').appendChild(r);
   });
   var d=L[cur]||L[0];if(!d)return;
   $('pCat').textContent=d.cat;$('pId').textContent=d.id;$('pUsed').textContent='上次使用：'+d.used;
   $('pOrig').textContent=d.o;$('pNote').textContent=d.note;
-  $('pUrl').textContent='https://news.tvbs.com.tw/news/'+d.id;
-  var car=$('car');car.innerHTML='';car.className='car';
+    var car=$('car');car.innerHTML='';car.className='car';
   d.v.forEach(function(t,i){
     var c=document.createElement('div');c.className='slide';
     c.innerHTML='<p class="t">'+t+'</p><div class="m">版本 '+(i+1)+'・'+t.length+' 字</div>';
@@ -227,12 +223,11 @@ function render(){
   }
   car.scrollLeft=sel*car.clientWidth;sync();
 }
-document.addEventListener('click',function(e){
-  var b=e.target.closest('.copy');if(!b)return;e.stopPropagation();
-  var old=b.textContent;b.textContent='已複製 ✓';b.classList.add('done');
-  setTimeout(function(){b.textContent=old;b.classList.remove('done')},1200);
-});
-$('copyAll').onclick=function(){var o=this.textContent;this.textContent='已複製 ✓';var t=this;setTimeout(function(){t.textContent=o},1200)};
+window.lastCopied='';
+function flash(b,t){var o=b.dataset.o||b.textContent;b.dataset.o=o;b.textContent=t;setTimeout(function(){b.textContent=o},1200)}
+function doCopy(b,text,msg){window.lastCopied=text;try{navigator.clipboard.writeText(text).catch(function(){})}catch(e){}flash(b,msg)}
+$('cTitle').onclick=function(){var d=list()[cur];doCopy(this,d.v[sel],d.v.length>1?'已複製第 '+(sel+1)+' 版標題 ✓':'已複製標題 ✓')};
+$('cNote').onclick=function(){var d=list()[cur];doCopy(this,d.note+'\nhttps://news.tvbs.com.tw/news/'+d.id,'已複製留言 ✓')};
 $('mark').onclick=function(){var d=list()[cur];d.used='剛剛';d.fresh=0;render()};
 render();
 </script>
