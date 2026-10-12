@@ -2,7 +2,7 @@
 
 把挑好的熱門新聞集中管理：原文連結、多版改標（左右滑動）、小編文、上次使用時間與次數；一鍵複製標題與留言，貼網址自動帶入原始標題。
 
-**目前進度**：前端（GitHub Pages 網頁）已完成；後端（Google Apps Script API）尚未撰寫，網頁要等後端完成才能連線載入資料。
+**目前進度**：前端（GitHub Pages 網頁）與後端（Google Apps Script API）程式都已完成並通過自動測試；剩下在你的 Google 帳號部署後端、設定密碼（見下方「後端部署」）。
 
 ## 架構
 
@@ -34,9 +34,16 @@ Apps Script Web App（doPost）── 先驗密碼 ──┬──▶ 私人 Goo
 2. GitHub repo → Settings → Pages → **Source 選「GitHub Actions」**。
 3. `main` 收到推送後，`pages.yml` 會依序：測試 → 建置 `_site/`（五個檔）→ 部署。約 1–10 分鐘生效，網址 `https://unnn3ing-oss.github.io/hottopic/`。
 
-### 後端（待完成）
+### 後端部署（約 10 分鐘，一次性）
 
-後端寫好後會補上：建立試算表 → 擴充功能 → Apps Script → 貼入 `appsscript.json`、`Code.gs`、`lib.js` → 指令碼屬性 `API_TOKEN`、`SHEET_ID` → 執行 `setup` 授權 → 部署為網頁應用程式（執行身分：我；存取：任何人）。步驟與冒煙測試走過的相同，見 `docs/apps-script-smoke-test.md`。
+1. 建一份**私人** Google 試算表（空白即可，分頁程式會自動建立），網址中 `/d/` 與 `/edit` 之間那串就是 `SHEET_ID`。
+2. 試算表 → 擴充功能 → Apps Script。專案設定勾「顯示 appsscript.json」，貼入 `apps-script/appsscript.json` 與 `apps-script/Code.gs`；再新增一個指令碼檔案（名稱 `lib`），貼入 `apps-script/lib.js`。
+3. 專案設定 → 指令碼屬性：新增 `API_TOKEN`（至少 32 字元，產生方式見下）與 `SHEET_ID`。
+4. 在編輯器選函式 `setup` → 執行，完成授權（試算表與對外連線）。執行記錄只會顯示屬性是否存在，不會印出內容。
+5. 部署 → 新增部署作業 → 網頁應用程式：執行身分「我」、存取權「任何人」。複製 `/exec` 結尾的網址。
+6. 開網頁，在設定貼上 `/exec` 網址與密碼，按「儲存並連線」。
+
+之後修改程式要「管理部署作業 → 編輯 → 新版本」才會生效（網址不變）。冒煙測試的做法見 `docs/apps-script-smoke-test.md`。
 
 產生 48 字元隨機密碼（在任一網頁的 Console 貼上，會自動複製）：
 
