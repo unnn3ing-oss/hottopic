@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src https://script.google.com https://script.googleusercontent.com; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex">
+<title>熱門新聞庫</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="app.css">
+<script src="lib.js" defer></script>
+<script src="api.js" defer></script>
+<script src="app.js" defer></script>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>熱門新聞庫</h1>
+    <div class="hdr-actions">
+      <button class="btn" id="settingsBtn" type="button">設定</button>
+      <button class="btn primary" id="addBtn" type="button">＋ 新增新聞</button>
+    </div>
+  </header>
+
+  <div class="tools">
+    <input type="search" id="q" placeholder="搜尋標題、小編文、編號" aria-label="搜尋">
+    <select id="sort" aria-label="排序">
+      <option value="oldest">最久未用優先</option>
+      <option value="recent">最近使用優先</option>
+      <option value="count">使用次數多到少</option>
+      <option value="created">最新新增</option>
+    </select>
+  </div>
+  <div class="chips" id="chips"></div>
+  <div class="list" id="list"></div>
+  <p class="foot">有多個改標時，手機用手指左右滑動；電腦可用滑鼠按住拖曳、觸控板橫滑、方向鍵 ←/→，或按 ‹ › 切換。「複製標題」複製目前顯示的那一版；「標記已使用」會記錄在目前顯示的那一版和整則新聞上。複製留言的網址格式：https://news.tvbs.com.tw/news/編號</p>
+</div>
+
+<dialog id="settingsDlg">
+  <form id="settingsForm" method="dialog">
+    <h2>設定</h2>
+    <label>Apps Script 網址
+      <input id="sUrl" type="text" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off" spellcheck="false">
+    </label>
+    <label>密碼
+      <input id="sToken" type="password" autocomplete="off" spellcheck="false">
+    </label>
+    <label class="check"><input id="sRemember" type="checkbox"> <span>在這台裝置記住密碼<br><small>勾選後密碼會存在這個瀏覽器，同一個 github.io 網域下的其他網頁也讀得到。公用或共用的電腦請不要勾。</small></span></label>
+    <div class="hint warn" id="sMsg" role="alert" hidden></div>
+    <ul class="steps" id="sSteps" hidden></ul>
+    <div class="row">
+      <button class="btn danger" type="button" id="sClear">清除這台裝置的設定</button>
+      <button class="btn primary" type="submit" id="sSave">儲存並連線</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlg">
+  <form id="form" method="dialog">
+    <h2 id="dlgTitle">新增新聞</h2>
+    <label>原文網址
+      <input id="fUrl" type="text" inputmode="url" placeholder="https://news.tvbs.com.tw/cars/4032757" autocomplete="off" maxlength="2000">
+    </label>
+    <div class="hint" id="idHint"></div>
+    <label>分類
+      <select id="fCat"></select>
+    </label>
+    <label>原始標題（建立後不可修改）
+      <input id="fOrig" type="text" autocomplete="off" maxlength="500">
+    </label>
+    <div class="hint" id="titleHint"></div>
+    <div id="vars"></div>
+    <button class="btn" type="button" id="addVar">＋ 新增一個改標</button>
+    <label>小編文（整則新聞共用）
+      <textarea id="fNote" maxlength="5000"></textarea>
+    </label>
+    <div class="hint warn" id="err" role="alert" hidden></div>
+    <div class="row">
+      <button class="btn danger" type="button" id="del" hidden>刪除這則</button>
+      <button class="btn" type="button" id="cancel">取消</button>
+      <button class="btn primary" type="submit" id="save">儲存</button>
+    </div>
+  </form>
+</dialog>
+<div id="toast" role="status" hidden></div>
+</body>
+</html>
