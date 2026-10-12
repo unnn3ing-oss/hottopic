@@ -25,7 +25,7 @@ button{font:inherit;color:inherit;cursor:pointer}
 .topbar{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line)}
 .topbar h1{font-size:17px;margin:0;font-weight:800;flex:none}
 .search{flex:1;min-width:0;border:1px solid var(--line);background:var(--soft);border-radius:999px;padding:6px 14px;font:inherit;color:inherit}
-.pill{border:1.5px solid var(--line);background:var(--surface);border-radius:999px;padding:5px 16px;font-size:14px;font-weight:600;line-height:1.4;color:var(--ink)}
+.pill{border:1.5px solid var(--line);background:var(--surface);border-radius:999px;padding:5px 14px;font-size:14px;font-weight:600;line-height:1.4;color:var(--ink)}
 .pill:hover{border-color:var(--edge)}
 .pill.solid{background:var(--blue);border-color:var(--blue);color:var(--blue-fg)}
 .pill.icon{padding:5px 11px}
@@ -80,7 +80,7 @@ button{font:inherit;color:inherit;cursor:pointer}
 .car:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
 .slide{flex:0 0 100%;scroll-snap-align:start;scroll-snap-stop:always;min-width:0;padding:16px 18px;min-height:190px;display:flex;flex-direction:column;gap:8px;justify-content:space-between}
 .slide .t{font-size:20px;font-weight:800;line-height:1.5;margin:0;overflow-wrap:anywhere;white-space:pre-wrap}
-.slide .m{font-size:12px;color:var(--muted)}
+.slide .m{font-size:13px;color:var(--muted)}
 .stepper_old{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center}
 .circ{width:40px;height:40px;border-radius:50%;border:1.5px solid var(--line);background:var(--soft);font-size:22px;line-height:1;display:grid;place-items:center;padding:0;color:var(--ink)}
 .circ:hover:not([disabled]){border-color:var(--blue);color:var(--blue)}
@@ -92,12 +92,12 @@ button{font:inherit;color:inherit;cursor:pointer}
 .hint{font-size:12px;color:var(--muted)}
 
 /* 右欄：小編文、紀錄 */
-.note{white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px;margin:0}
+.note{white-space:pre-wrap;overflow-wrap:anywhere;font-size:15px;margin:0}
 .note.empty{color:var(--muted)}
-.rec{margin-left:auto;font-size:13px;color:var(--muted);text-align:right}
+.rec{margin-left:auto;font-size:14px;color:var(--muted);text-align:right}
 .rec b{color:var(--ink);font-weight:700}
 .rec .never{color:var(--ok)}
-.orig{font-size:13px;color:var(--muted);display:flex;gap:8px;align-items:flex-start;margin-top:-8px}
+.orig{font-size:14px;color:var(--muted);display:flex;gap:8px;align-items:flex-start;margin-top:-8px}
 .tag{font-size:11px;border:1px solid var(--line);border-radius:999px;padding:0 7px;flex:none;margin-top:3px}
 
 .carwrap{position:relative;flex:1;display:flex}
@@ -116,15 +116,15 @@ button{font:inherit;color:inherit;cursor:pointer}
 /* 右側卡片採 2/3 尺寸（等比縮小），左邊清單吃掉剩餘空間 */
 .split{grid-template-columns:minmax(0,1fr) auto!important;min-height:0}
 .pane-r{display:block;align-self:start}
-.bigcard{width:740px;min-height:0;zoom:.667}
+.bigcard{width:494px;min-height:0}
 .slide{min-height:140px}
 @media(max-width:820px){.split{grid-template-columns:1fr!important}}
 </style>
 </head>
 <body>
-<div class="banner"><b>預覽稿（尚未改動正式網站）</b>：依你的標註調整——使用次數移到卡片右上；原始標題移到新聞編號下方（灰色小字）；小編文改為改標下方的純文字；按鈕移到卡片右下；卡片整體加高。</div>
+<div class="banner"><b>預覽稿（尚未改動正式網站）</b>：卡片為 2/3 寬，字級與整體網頁一致；改標用圓點切換，箭頭滑鼠移到卡片上才出現，也可左右滑動、拖曳或用方向鍵。</div>
 <div class="stage">
-  <p class="cap">電腦版：左邊清單，右邊一張大卡片（2/3 尺寸）。改標保留換行、可左右滑動，也可按 ‹ ›；「複製留言」＝小編文（第一行）＋原始網址（第二行）。</p>
+  <p class="cap">「複製標題」複製目前顯示的那一版（保留換行）；「複製留言」＝小編文（第一行）＋原始網址（第二行）。</p>
   <div class="app">
     <div class="topbar">
       <h1>熱門新聞庫</h1>
@@ -152,14 +152,14 @@ button{font:inherit;color:inherit;cursor:pointer}
           </div>
           <div class="orig"><span class="tag">原始</span><span id="pOrig"></span></div>
           <div class="field grow">
-            <span class="lbl">改標<small>左右滑動，或按 ‹ ›</small></span>
+            <span class="lbl">改標</span>
             <div class="carwrap">
               <div class="car" id="car" tabindex="0" aria-label="改標，可左右滑動或用方向鍵切換"></div>
               <button class="arrow l" id="prev" aria-label="上一個改標">‹</button>
               <button class="arrow r" id="next" aria-label="下一個改標">›</button>
             </div>
             <div class="dots" id="dots" role="tablist" aria-label="切換改標"></div>
-            <span class="hint" id="vhint"></span>
+            
           </div>
           <div class="field">
             <span class="lbl">小編文</span>
@@ -226,7 +226,6 @@ function render(){
   d.v.forEach(function(_,i){var x=document.createElement('button');x.className='dot'+(i===sel?' on':'');x.setAttribute('aria-label','第 '+(i+1)+' 版');x.onclick=function(){go(i)};$('dots').appendChild(x)});
   var multi=d.v.length>1;
   $('prev').hidden=$('next').hidden=!multi;$('dots').hidden=!multi;
-  $('vhint').textContent=multi?'複製標題＝目前顯示的這一版；標記已使用會記在這一版和整則新聞上':'';
   function sync(){
     var w=car.clientWidth||1;sel=Math.max(0,Math.min(d.v.length-1,Math.round(car.scrollLeft/w)));
     [].forEach.call($('dots').children,function(x,i){x.classList.toggle('on',i===sel)});
