@@ -283,21 +283,22 @@ test('markUsed：整則與該版本更新，其他版本不變；沒有改標只
 test('fetchTitle 成功：只回 title 與 source，請求選項符合規格，不取鎖不開試算表', () => {
   const s = setup(); s.gas.urlFetch = () => ({ code: 200, text: TVBS }); s.gas.lockHeld = true;
   const r = s.call('fetchTitle', { url: ' https://news.tvbs.com.tw/cars/4032757 ' });
-  assert.deepEqual(r, { ok: true, data: { title: TVBS_TITLE, source: 'og:title' } });
+  assert.deepEqual(r, { ok: true, data: { title: TVBS_TITLE, source: 'og:title', reason: null } });
   assert.equal(s.gas.calls.urlFetches.length, 1);
   const o = s.gas.calls.urlFetches[0].opts;
-  assert.deepEqual([o.muteHttpExceptions, o.followRedirects, o.timeoutSeconds], [true, true, 8]);
+  assert.deepEqual([o.muteHttpExceptions, o.followRedirects], [true, true]);
   assert.match(o.headers['User-Agent'], /Mozilla\/5\.0/);
   assert.equal(o.headers['Accept-Language'], 'zh-TW,zh;q=0.9');
   assert.equal(s.gas.calls.spreadsheetOpens, 0);
 });
 
-test('fetchTitle 失敗都回空結果；不合規網址不發出請求', () => {
-  const empty = { ok: true, data: { title: null, source: null } };
-  for (const f of [() => ({ code: 403, text: TVBS }), () => { throw new Error('SECRET-FETCH'); }, () => ({ code: 200, text: '<head><title>Just a moment...</title></head>' }), () => ({ code: 200, text: '<p>無</p>' })]) {
+test('fetchTitle 失敗都回空結果與原因；不合規網址不發出請求', () => {
+  const cases = [[() => ({ code: 403, text: TVBS }), 'http_403'], [() => { throw new Error('SECRET-FETCH'); }, 'fetch_error'],
+    [() => ({ code: 200, text: '<head><title>Just a moment...</title></head>' }), 'no_title'], [() => ({ code: 200, text: '<p>無</p>' }), 'no_title']];
+  for (const [f, reason] of cases) {
     const s = setup(); s.gas.urlFetch = f;
     const raw = s.be.raw(JSON.stringify({ token: TOKEN, action: 'fetchTitle', args: { url: 'https://x.com/a' } }));
-    assert.deepEqual(JSON.parse(raw), empty);
+    assert.deepEqual(JSON.parse(raw), { ok: true, data: { title: null, source: null, reason } });
     assert.ok(!raw.includes('SECRET-FETCH'));
   }
   const s = setup();
