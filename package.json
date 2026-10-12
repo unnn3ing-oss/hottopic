@@ -1,0 +1,16 @@
+{
+  "name": "hottopic",
+  "version": "0.1.0",
+  "private": true,
+  "description": "熱門新聞庫：GitHub Pages 前端 + Google Apps Script API",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "test:e2e": "node --test --test-concurrency=1 test/e2e/*.e2e.js",
+    "build": "node scripts/build-site.js",
+    "test:all": "npm test && npm run test:e2e"
+  },
+  "devDependencies": {
+    "playwright": "1.56.1"
+  }
+}
