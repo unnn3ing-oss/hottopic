@@ -1,6 +1,6 @@
 # 熱門新聞庫 設計 Spec
 
-日期：2026-10-11　修訂：2026-10-12（改為 GitHub Pages 前端 + Apps Script API；併入跨網站冒煙測試的實測結論）　狀態：**待使用者確認 B 方案修訂**（§3、§5「設定與連線」「自動抓標題」、§6、§7、§8、§9、§10 有改動；§4 與其餘 §5 沿用已核准內容）。冒煙測試 T1–T4 已通過，T5（密碼輪替）、T6（冷啟動延遲）待測。
+日期：2026-10-11　修訂：2026-10-12（改為 GitHub Pages 前端 + Apps Script API；併入跨網站冒煙測試的實測結論）　狀態：**待使用者確認 B 方案修訂**（§3、§5「設定與連線」「自動抓標題」、§6、§7、§8、§9、§10 有改動；§4 與其餘 §5 沿用已核准內容）。冒煙測試 T1–T6 已完成（T6 的閒置時間未達標，見 §10）。
 
 ## 1. 目的與使用者
 
@@ -218,7 +218,7 @@ docs/superpowers/        spec、plan、previews
 | 風險 | 作法 |
 |---|---|
 | 猜密碼 | 至少 32 字元、由密碼學隨機產生（README 附產生指令）。不做鎖定計數（別人能反過來把你鎖死），不做常數時間比較、簽章、nonce（對單人工具不降低實際風險） |
-| 密碼外洩 | 密碼放在 POST 內文，不放網址；預設只在記憶體；伺服器不記錄內文；Script Property 改值即輪替（待驗證是否免重新部署），舊瀏覽器收到 `unauthorized` 自動清除；若 Apps Script 網址外洩，「新增部署作業」換新網址 |
+| 密碼外洩 | 密碼放在 POST 內文，不放網址；預設只在記憶體；伺服器不記錄內文；改 Script Property 的值即輪替（已實測免重新部署，舊密碼立即失效），舊瀏覽器收到 `unauthorized` 自動清除；若 Apps Script 網址外洩，「新增部署作業」換新網址 |
 | 同網域共用儲存 | 同一個 `unnn3ing-oss.github.io` 網域下所有專案網頁共用 localStorage，所以「記住密碼」預設關閉且寫明風險；建議不要在這個網域放不可信的第三方腳本，或日後綁自訂網域；瀏覽器外掛讀得到網頁內容，建議用沒有可疑外掛的瀏覽器個人檔案 |
 | XSS | 所有文字以 `textContent` 輸出；連結只允許 http／https；不用資料當 `id`／`name`／`class`；`<head>` 最前面放 CSP：`default-src 'none'; script-src 'self'; style-src 'self'; connect-src https://script.google.com https://script.googleusercontent.com; img-src 'self' data:; base-uri 'none'; form-action 'none'`（兩個 Google 網域都要列，因為轉址每一跳都會檢查）；不用行內 style 屬性、不載入第三方字型或程式庫；另加 `<meta name="referrer" content="no-referrer">` 與 `<meta name="robots" content="noindex">` |
 | 後端被濫用 | token 先驗；`fetchTitle` 只回標題文字，並限制網址（見 §5） |
@@ -241,11 +241,12 @@ docs/superpowers/        spec、plan、previews
    - **T2 通過**：錯誤密碼回 `{"ok":false,"code":"unauthorized"}`，HTTP 仍是 200。
    - **T3 通過**：見 §5「實測結論三」。
    - **T4 符合預期**：以 `application/json` 呼叫在預檢階段被 CORS 擋下（`Failed to fetch`），證實必須用 `text/plain`。
-   - **T5（改指令碼屬性即輪替密碼、免重新部署）與 T6（冷啟動延遲）尚未測**。T5 結果出來前，文件一律寫「輪替後請執行一次 ping 確認」，不保證免重新部署。
+   - **T5 通過**：只在指令碼屬性把 `API_TOKEN` 改成新值並儲存、**沒有重新部署**，舊密碼立刻回 `unauthorized`，新密碼立刻成功。所以輪替密碼＝改屬性值＋在網頁設定貼新密碼，不需要動部署。
+   - **T6 有數字但不算冷啟動**：`ping` 2.08 秒、與暖啟動的 1.7–2.4 秒同一範圍；但這次與前一次呼叫的間隔不到 10 分鐘，不能證明是冷啟動。
    - 這項依賴 Google 沒有公開承諾的行為，所以保留冒煙測試文件，日後出現「連不上」時可重跑，分辨是 Google 端變了還是程式的問題。
 2. **與 CSP 的互動**：`connect-src` 需同時允許 `script.google.com` 與 `script.googleusercontent.com`；Console 在 `example.com` 的測試沒有 CSP，抓不到這類問題，所以首次部署到 GitHub Pages 後要在真實頁面再測一次。
 3. **Apps Script 伺服器端抓 TVBS 標題的穩定度**：已實測一次成功。尚未確認的是長期穩定度：TVBS 或其防護日後可能對來自 Google 的請求出現驗證頁、限流或封鎖。被擋時退回手動輸入，不影響其他功能。
-4. **延遲**：實測連續呼叫約 0.8–2.0 秒（`ping` 1.7–2.0 秒、錯誤密碼 0.8 秒、含抓取 TVBS 的 `fetchTitle` 2.4 秒）。這些不是冷啟動數字，閒置後的冷啟動延遲待 T6。列表載入顯示「載入中」。
+4. **延遲**：實測連續呼叫約 0.8–2.0 秒（`ping` 1.7–2.0 秒、錯誤密碼 0.8 秒、含抓取 TVBS 的 `fetchTitle` 2.4 秒）。這些都不是確認過的冷啟動數字（T6 閒置時間不足）；規格以「每次操作約 2 秒、偶爾更久」設計：列表載入顯示「載入中」、操作按鈕有處理中狀態、不假設即時回應。
 5. **配額**：消費者帳號每日 `UrlFetchApp` 約 2 萬次（二手資料，且配額可能調整）；沒有密碼的人仍可送請求消耗執行額度，影響是暫時性錯誤，不會外洩或改動資料。
 6. **同網域 localStorage 共用**：見 §8。
 7. **Pages 快取**：以 `?v=<commit sha>` 與 API 向下相容處理，實際快取時間於首次部署後以 `curl -I` 確認。
