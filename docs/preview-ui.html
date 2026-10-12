@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>熱門新聞庫｜介面改版預覽</title>
+<style>
+:root{
+  --bg:#f3f5f4; --surface:#fff; --fg:#1d2420; --muted:#66706a; --line:#dde1dd;
+  --accent:#0d6b5c; --accent-fg:#fff; --accent-soft:#e1f0ec; --ok:#1c7a45; --warn:#b26a00; --warn-bg:#fdf1d8;
+  --line-green:#06c755; --chat-bg:#8fa6c9;
+  --font:"PingFang TC","Microsoft JhengHei","Noto Sans TC",system-ui,sans-serif;
+  --mono:ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root{--bg:#121614;--surface:#1b211e;--fg:#e8ece9;--muted:#9aa59e;--line:#2c342f;
+  --accent:#4fc2ac;--accent-fg:#06211b;--accent-soft:#1a2f2a;--warn:#f0d28a;--warn-bg:#3a2f12;--ok:#6fd49a;color-scheme:dark}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 var(--font);padding:16px}
+button{font:inherit;color:inherit;cursor:pointer}
+.banner{max-width:1180px;margin:0 auto 14px;background:var(--warn-bg);color:var(--warn);border-radius:8px;padding:8px 14px;font-size:13px}
+.stage{max-width:1180px;margin:0 auto;display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:20px;align-items:start}
+@media(max-width:980px){.stage{grid-template-columns:1fr}}
+.cap{font-size:12px;color:var(--muted);margin:0 0 6px;letter-spacing:.04em}
+
+/* ---------- App 外框 ---------- */
+.app{background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.topbar{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line)}
+.topbar h1{font-size:17px;margin:0;font-weight:700;flex:none}
+.search{flex:1;min-width:0;border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:6px 10px;font:inherit;color:inherit}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:6px 12px;font-size:14px;line-height:1.4}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);color:var(--accent-fg);border-color:var(--accent);font-weight:500}
+.btn.ghost{border-color:transparent;color:var(--muted)}
+.split{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,6fr);min-height:620px}
+@media(max-width:760px){.split{grid-template-columns:1fr}.pane-r{display:none}}
+
+/* ---------- 左：清單 ---------- */
+.pane-l{border-right:1px solid var(--line);display:flex;flex-direction:column;min-width:0}
+.filters{padding:10px 14px;display:flex;flex-direction:column;gap:8px;border-bottom:1px solid var(--line)}
+.chips{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none}
+.chip{flex:none;border:1px solid var(--line);background:transparent;border-radius:999px;padding:2px 12px;font-size:13px;color:var(--muted)}
+.chip small{font-family:var(--mono);margin-left:4px}
+.chip[aria-pressed=true]{background:var(--accent-soft);color:var(--accent);border-color:var(--accent);font-weight:500}
+.sortrow{display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--muted)}
+.sortrow select{border:0;background:transparent;color:var(--fg);font:inherit;font-size:13px}
+.rows{overflow:auto;flex:1}
+.row{display:grid;grid-template-columns:4px 1fr auto;gap:0 10px;padding:10px 14px 10px 0;border-bottom:1px solid var(--line);cursor:pointer;align-items:start}
+.row:hover{background:color-mix(in srgb,var(--accent-soft) 40%,transparent)}
+.row .bar{align-self:stretch;background:transparent;border-radius:0 3px 3px 0}
+.row[aria-selected=true]{background:var(--accent-soft)}
+.row[aria-selected=true] .bar{background:var(--accent)}
+.row h3{margin:0;font-size:15px;line-height:1.5;font-weight:600;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.row .sub{margin-top:2px;font-size:12px;color:var(--muted);display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.cat{background:var(--accent-soft);color:var(--accent);border-radius:4px;padding:0 7px;font-weight:500;font-size:12px}
+.row[aria-selected=true] .cat{background:var(--surface)}
+.badge{font-size:12px;white-space:nowrap;padding-top:2px;text-align:right;color:var(--muted)}
+.badge.fresh{color:var(--ok);font-weight:600}
+.vcount{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-radius:4px;padding:0 5px}
+
+/* ---------- 右：工作台 ---------- */
+.pane-r{display:flex;flex-direction:column;min-width:0}
+.ph{padding:14px 18px 8px;display:flex;flex-direction:column;gap:6px}
+.ph .meta{display:flex;gap:8px;align-items:center;font-size:12px;color:var(--muted);flex-wrap:wrap}
+.ph .id{font-family:var(--mono)}
+.ph .orig{font-size:13px;color:var(--muted);margin:0}
+.ph .orig b{font-weight:500;color:var(--fg)}
+.sec{padding:6px 18px 4px;font-size:12px;color:var(--muted);letter-spacing:.04em;display:flex;justify-content:space-between;align-items:center}
+.cards{padding:0 18px;display:flex;flex-direction:column;gap:8px}
+.card{border:1.5px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--surface);cursor:pointer;display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:start}
+.card:hover{border-color:var(--accent)}
+.card[aria-checked=true]{border-color:var(--accent);background:var(--accent-soft)}
+.radio{width:16px;height:16px;border-radius:50%;border:2px solid var(--line);margin-top:4px}
+.card[aria-checked=true] .radio{border-color:var(--accent);background:radial-gradient(var(--accent) 45%,transparent 50%)}
+.card .t{font-weight:700;font-size:16px;line-height:1.5;margin:0}
+.card .m{font-size:12px;color:var(--muted);margin-top:2px}
+.copy{border:1px solid var(--accent);color:var(--accent);background:transparent;border-radius:8px;padding:3px 10px;font-size:13px;font-weight:500;white-space:nowrap}
+.copy:hover{background:var(--accent-soft)}
+.card[aria-checked=true] .copy:hover{background:var(--surface)}
+.copy.done{background:var(--ok);border-color:var(--ok);color:#fff}
+.block{margin:0 18px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:6px}
+.block .hd{display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--muted)}
+.block p{margin:0;font-size:14px;white-space:pre-wrap}
+.block .url{font-family:var(--mono);font-size:13px;word-break:break-all}
+.stack{display:flex;flex-direction:column;gap:10px;padding-bottom:14px}
+.dock{margin-top:auto;border-top:1px solid var(--line);padding:10px 18px;display:flex;gap:8px;align-items:center;background:var(--surface);position:sticky;bottom:0}
+.dock .grow{flex:1;font-size:12px;color:var(--muted)}
+.kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:0 5px}
+
+/* ---------- LINE 預覽 ---------- */
+.phone{width:100%;max-width:340px;margin:0 auto;border:1px solid var(--line);border-radius:26px;overflow:hidden;background:var(--chat-bg)}
+.phone .bar2{background:#fff;color:#111;padding:10px 14px;font-size:14px;font-weight:600;display:flex;justify-content:space-between}
+.chat{padding:16px 12px 18px;display:flex;flex-direction:column;gap:6px;min-height:300px}
+.bubble{background:#fff;color:#111;border-radius:4px 16px 16px 16px;padding:10px 12px;max-width:86%;font-size:14px;line-height:1.55;white-space:pre-wrap;word-break:break-all;box-shadow:0 1px 0 rgba(0,0,0,.08)}
+.bubble.url{color:#1a5fb4;text-decoration:underline;font-size:13px}
+.who{font-size:11px;color:#fff;opacity:.9}
+.hintbox{font-size:12px;color:var(--muted);margin:8px 2px 0}
+.mini-note{font-size:12px;color:var(--muted);margin:10px 2px 0}
+</style>
+</head>
+<body>
+<div class="banner"><b>預覽稿（尚未改動正式網站）</b>：我找不到「LINE推播套版產生器」可供參考，下面是依「挑選 → 即時預覽 → 一鍵複製」這類工具的常見操作模式推測出來的版型。確認方向或給我該工具的截圖後再調整，再動正式程式。</div>
+
+<div class="stage">
+  <div>
+    <p class="cap">電腦版（左：清單／右：工作台；點清單即切換右側，不再開彈窗）</p>
+    <div class="app">
+      <div class="topbar">
+        <h1>熱門新聞庫</h1>
+        <input class="search" placeholder="搜尋標題、小編文、編號　（按 / 快速聚焦）">
+        <button class="btn primary">＋ 新增</button>
+        <button class="btn ghost" aria-label="設定">⚙</button>
+      </div>
+      <div class="split">
+        <section class="pane-l">
+          <div class="filters">
+            <div class="chips" id="chips"></div>
+            <div class="sortrow"><span id="cnt"></span>
+              <select aria-label="排序"><option>最久未用優先</option><option>最近使用優先</option><option>使用次數多到少</option><option>最新新增</option></select>
+            </div>
+          </div>
+          <div class="rows" id="rows" role="listbox"></div>
+        </section>
+        <section class="pane-r">
+          <div class="ph">
+            <div class="meta"><span class="cat" id="pCat"></span><span class="id" id="pId"></span><span id="pUsed"></span><span style="margin-left:auto"><button class="btn small ghost" style="padding:0 6px">編輯</button></span></div>
+            <p class="orig">原始標題：<b id="pOrig"></b></p>
+          </div>
+          <div class="stack">
+            <div>
+              <div class="sec"><span>改標版本（點選＝目前使用的版本）</span><span class="kbd">↑ ↓</span></div>
+              <div class="cards" id="cards" role="radiogroup"></div>
+            </div>
+            <div class="block">
+              <div class="hd"><span>小編文</span><button class="copy" data-copy="note">複製</button></div>
+              <p id="pNote"></p>
+            </div>
+            <div class="block">
+              <div class="hd"><span>留言網址</span><button class="copy" data-copy="url">複製</button></div>
+              <div class="url" id="pUrl"></div>
+            </div>
+          </div>
+          <div class="dock">
+            <div class="grow">複製後可直接「標記已使用」</div>
+            <button class="btn" id="copyAll">複製標題＋網址</button>
+            <button class="btn primary" id="mark">標記已使用</button>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <p class="cap">LINE 推播即時預覽（右欄可折疊；手機版放在詳情頁下方）</p>
+    <div class="phone">
+      <div class="bar2"><span>‹ TVBS 新聞</span><span>☰</span></div>
+      <div class="chat">
+        <div class="who">TVBS 新聞</div>
+        <div class="bubble" id="lTitle"></div>
+        <div class="bubble url" id="lUrl"></div>
+      </div>
+    </div>
+    <p class="hintbox">切換左側的改標版本，這裡同步顯示推播長相；字數過長時會提示。</p>
+    <p class="mini-note"><b>手機版</b>：清單全寬，點一則 → 詳情全螢幕滑入（同右側工作台），底部固定「複製標題」「標記已使用」兩顆大按鈕，左上角返回。</p>
+  </div>
+</div>
+
+<script>
+var DATA=[
+ {id:'4032757',cat:'社會',o:'北市清晨驚傳隨機砍人　62歲男當場落網',used:'從未使用',fresh:1,
+  v:['北市驚魂！62歲男清晨持刀砍人　警方三分鐘到場壓制','【獨家】隨機攻擊釀3傷　嫌犯供稱「心情不好」'],note:'路人拍下警方壓制畫面，市民直呼嚇壞。'},
+ {id:'1358062',cat:'健康',o:'每天一杯咖啡真的傷胃？醫師揭3種人別碰',used:'12 天前',
+  v:['咖啡喝錯＝傷胃？醫曝3類人別碰'],note:'醫師提醒：空腹喝咖啡對胃酸分泌影響最大。'},
+ {id:'4032101',cat:'國際',o:'日本強震規模6.8　東京搖晃明顯',used:'3 天前',
+  v:['日本規模6.8強震　東京大樓搖晃','快訊／日本強震！氣象廳：留意餘震'],note:'目前暫無傳出災情。'},
+ {id:'4031988',cat:'娛樂',o:'金曲歌后宣布年底開唱　門票秒殺',used:'28 天前',
+  v:['歌后年底開唱！門票開賣秒殺'],note:'粉絲搶票大塞車，官方加開場次。'},
+ {id:'4031720',cat:'生活',o:'超商新品聯名開賣　限量周邊預告',used:'45 天前',
+  v:['超商聯名快閃　限量周邊搶先看','便利商店新品＋周邊　開賣時間曝光'],note:'周邊數量有限，賣完為止。'}
+];
+var cats=['全部','社會','生活','健康','政治','國際','娛樂'],cur=0,sel=0,catSel='全部';
+function $(i){return document.getElementById(i)}
+function renderChips(){
+  $('chips').innerHTML='';
+  cats.forEach(function(c){
+    var n=c==='全部'?DATA.length:DATA.filter(function(d){return d.cat===c}).length;
+    var b=document.createElement('button');b.className='chip';b.setAttribute('aria-pressed',c===catSel);
+    b.innerHTML=c+'<small>'+n+'</small>';
+    b.onclick=function(){catSel=c;cur=0;sel=0;render()};
+    $('chips').appendChild(b);
+  });
+}
+function list(){return DATA.filter(function(d){return catSel==='全部'||d.cat===catSel})}
+function render(){
+  renderChips();
+  var L=list();$('cnt').textContent='共 '+L.length+' 則';
+  $('rows').innerHTML='';
+  L.forEach(function(d,i){
+    var r=document.createElement('div');r.className='row';r.setAttribute('role','option');r.setAttribute('aria-selected',i===cur);
+    r.innerHTML='<span class="bar"></span><div><h3>'+d.v[0]+'</h3><div class="sub"><span class="cat">'+d.cat+'</span><span>'+d.id+'</span>'+(d.v.length>1?'<span class="vcount">'+d.v.length+' 版</span>':'')+'</div></div><div class="badge'+(d.fresh?' fresh':'')+'">'+d.used+'</div>';
+    r.onclick=function(){cur=i;sel=0;render()};
+    $('rows').appendChild(r);
+  });
+  var d=L[cur]||L[0];if(!d)return;
+  $('pCat').textContent=d.cat;$('pId').textContent=d.id;$('pUsed').textContent='上次使用：'+d.used;
+  $('pOrig').textContent=d.o;$('pNote').textContent=d.note;
+  $('pUrl').textContent='https://news.tvbs.com.tw/news/'+d.id;
+  $('cards').innerHTML='';
+  d.v.forEach(function(t,i){
+    var c=document.createElement('div');c.className='card';c.setAttribute('role','radio');c.setAttribute('aria-checked',i===sel);
+    c.innerHTML='<span class="radio"></span><div><p class="t">'+t+'</p><div class="m">版本 '+(i+1)+'・'+t.length+' 字</div></div><button class="copy" data-copy="title">複製</button>';
+    c.onclick=function(){sel=i;render()};
+    $('cards').appendChild(c);
+  });
+  $('lTitle').textContent=d.v[sel];$('lUrl').textContent='https://news.tvbs.com.tw/news/'+d.id;
+}
+document.addEventListener('click',function(e){
+  var b=e.target.closest('.copy');if(!b)return;e.stopPropagation();
+  var old=b.textContent;b.textContent='已複製 ✓';b.classList.add('done');
+  setTimeout(function(){b.textContent=old;b.classList.remove('done')},1200);
+});
+$('copyAll').onclick=function(){var o=this.textContent;this.textContent='已複製 ✓';var t=this;setTimeout(function(){t.textContent=o},1200)};
+$('mark').onclick=function(){var d=list()[cur];d.used='剛剛';d.fresh=0;render()};
+render();
+</script>
+</body>
+</html>
