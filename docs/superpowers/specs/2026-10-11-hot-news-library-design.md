@@ -1,6 +1,6 @@
 # 熱門新聞庫 設計 Spec
 
-日期：2026-10-11　修訂：2026-10-12（改為 GitHub Pages 前端 + Apps Script API）　狀態：**待使用者確認 B 方案修訂**（§3、§5「設定與連線」、§6、§7、§8、§9、§10 有改動；§4 與其餘 §5 沿用已核准內容）
+日期：2026-10-11　修訂：2026-10-12（改為 GitHub Pages 前端 + Apps Script API；併入跨網站冒煙測試的實測結論）　狀態：**待使用者確認 B 方案修訂**（§3、§5「設定與連線」「自動抓標題」、§6、§7、§8、§9、§10 有改動；§4 與其餘 §5 沿用已核准內容）。冒煙測試 T1–T4 已通過，T5（密碼輪替）、T6（冷啟動延遲）待測。
 
 ## 1. 目的與使用者
 
@@ -26,6 +26,7 @@
 | 儲存 | 私人 Google 試算表（使用者雲端硬碟），不公開、不用 SQL |
 | 前端 | 靜態網頁，發布在 GitHub Pages：`https://unnn3ing-oss.github.io/hottopic/`。repo 為公開（免費方案要求），**網頁與 repo 內不放任何機密** |
 | 後端 | Google Apps Script Web App 當 JSON API：執行身分＝部署者（使用者本人），存取權＝「任何人」。只提供 `doGet`（固定回傳 `ok`）與 `doPost` |
+| 試算表連結與授權範圍 | 指令碼屬性 `SHEET_ID` 記試算表 ID，程式一律 `SpreadsheetApp.openById`，**不依賴專案是否綁定在試算表上**（獨立專案與從試算表開的專案都能跑）。資訊清單範圍為 `spreadsheets` 與 `script.external_request`（`openById` 需要完整的 `spreadsheets`；較窄的 `spreadsheets.currentonly` 只適用綁定專案，未測試也不採用，理由見 §8）。已實測此組合可用 |
 | 存取控制 | 共用密碼（token）：至少 32 字元的隨機字串，存在 Apps Script 的「指令碼屬性」`API_TOKEN`，隨每次請求放在 POST 內文。使用者在網頁「設定」貼一次；**密碼預設只留在記憶體**，勾「在這台裝置記住」才存進瀏覽器 |
 | 分支與發布 | 預設分支 `main`；開發在功能分支，經 PR 併入 `main` 才算正式；GitHub Pages **只從 `main` 部署**，部署前先跑測試（細節見 §6） |
 | 編號 | 取網址中最長的一串數字；重複編號視為已存在 |
@@ -137,6 +138,8 @@
 - meta 屬性順序是 `property` 在前、`content` 在後（解析仍不依賴順序，因為其他網站可能相反）。
 - 整頁約 216 KB，但標題在 `<head>`。
 
+**實測結論三（2026-10-12，部署成網頁應用程式後從 `https://example.com` 經 `fetch` POST 呼叫 `fetchTitle`）**：`status=200`、內容 217,690 字元、取得與上列完全相同的 `og:title`，整趟（含轉址）約 2.4 秒。`UrlFetchApp.fetch` 帶 `timeoutSeconds: 8` **沒有丟錯**（選項被接受；**是否真的生效未驗證**，所以 8 秒保證仍靠網頁計時）。
+
 **做法：由 Apps Script 伺服器端抓取，解析沿用外掛的邏輯**
 
 1. `fetchTitle` 動作用 `UrlFetchApp.fetch` 下載原始碼：`muteHttpExceptions: true`、跟隨轉址、帶一般瀏覽器的 `User-Agent` 與 `Accept-Language: zh-TW`，以 UTF-8 解碼。`<meta>` 與 `<title>` 只看 `</head>` 之前的內容（找不到 `</head>` 時取前 300 KB）；`<h1>` 在內文，取前 300 KB 內的第一個。
@@ -147,7 +150,7 @@
 
 **網址限制（只擋明顯不該抓的，不另做轉址檢查）**：只允許 `http`／`https`；不允許帶帳號密碼的網址（`user:pass@`）、IP 位址當主機、`localhost`、80／443 以外的連接埠。伺服器只回傳整理後的標題文字與來源名稱，不回傳原始網頁。
 
-**失敗處理**：狀態碼不是 200、抓取丟出例外、回傳的是驗證或防機器人頁面（標題為「Just a moment…」之類）、找不到任何標題來源時，回傳空值並提示「抓不到標題，請手動輸入」，不阻擋儲存。**8 秒逾時由網頁計時**（超過就放棄並顯示同樣的提示，晚到的結果丟棄、不覆蓋使用者已輸入的內容）；後端若支援 `UrlFetchApp` 的 `timeoutSeconds` 也一併設為 8 秒（審查員由搜尋摘要得知有此選項，未能開啟官方頁面確認，先行驗證再決定，見 §10）。非 UTF-8 的網頁可能亂碼，需手動修正。
+**失敗處理**：狀態碼不是 200、抓取丟出例外、回傳的是驗證或防機器人頁面（標題為「Just a moment…」之類）、找不到任何標題來源時，回傳空值並提示「抓不到標題，請手動輸入」，不阻擋儲存。**8 秒逾時由網頁計時**（超過就放棄並顯示同樣的提示，晚到的結果丟棄、不覆蓋使用者已輸入的內容）；後端的 `UrlFetchApp.fetch` 也帶 `timeoutSeconds: 8`（冒煙測試顯示選項被接受，但不當作保證，見 §10）。非 UTF-8 的網頁可能亂碼，需手動修正。
 
 **備案（目前不做；只有日後伺服器端常被 TVBS 擋下時才另案討論）**：沿用使用者現有的外掛，在文章頁一鍵把網址與標題送進熱門新聞庫。這需要外掛的程式碼，不在本次範圍內。
 
@@ -166,9 +169,9 @@ Apps Script Web App（doPost）── 先驗 token ──┬──▶ Spreadshee
 ```
 apps-script/
   appsscript.json   時區 Asia/Taipei；webapp: executeAs USER_DEPLOYING, access ANYONE_ANONYMOUS；
-                    oauthScopes 只列 spreadsheets.currentonly 與 script.external_request
-  Code.gs           doGet、doPost（驗 token、派送動作）；動作：ping、listItems、addItem、updateItem、
-                    markUsed、deleteItem、fetchTitle
+                    oauthScopes 只列 spreadsheets 與 script.external_request
+  Code.gs           doGet、doPost（驗 token、派送動作）；sheet_() 以指令碼屬性 SHEET_ID 開啟試算表；
+                    動作：ping、listItems、addItem、updateItem、markUsed、deleteItem、fetchTitle
   lib.js            純函式與常數：extractId、nextSerialId、normalizeUrl、normalizeText、buildComment、
                     titleFromHtml、cleanTitle、TITLE_SOURCES、SITE_SUFFIXES（同一份檔案被 Apps Script、
                     網頁、node 測試共用）
@@ -220,7 +223,7 @@ docs/superpowers/        spec、plan、previews
 | XSS | 所有文字以 `textContent` 輸出；連結只允許 http／https；不用資料當 `id`／`name`／`class`；`<head>` 最前面放 CSP：`default-src 'none'; script-src 'self'; style-src 'self'; connect-src https://script.google.com https://script.googleusercontent.com; img-src 'self' data:; base-uri 'none'; form-action 'none'`（兩個 Google 網域都要列，因為轉址每一跳都會檢查）；不用行內 style 屬性、不載入第三方字型或程式庫；另加 `<meta name="referrer" content="no-referrer">` 與 `<meta name="robots" content="noindex">` |
 | 後端被濫用 | token 先驗；`fetchTitle` 只回標題文字，並限制網址（見 §5） |
 | 試算表公式注入 | 文字欄位設為純文字格式，每次寫入前設定（見 §4） |
-| 權限範圍 | `appsscript.json` 只宣告 `spreadsheets.currentonly` 與 `script.external_request`，外洩時只波及這份試算表與對外抓取 |
+| 權限範圍 | `appsscript.json` 只宣告 `spreadsheets` 與 `script.external_request`。**誠實說明**：`spreadsheets` 讓這支程式在授權上能開啟你帳號下任何試算表，但程式只會開 `SHEET_ID` 那一份，網頁能觸發的只有白名單內的幾個動作，沒有任意執行或任意讀檔的路徑；真正擋住外人的是密碼與動作白名單，不是範圍。選擇較窄的 `spreadsheets.currentonly` 需要專案綁定在試算表上、改用 `getActiveSpreadsheet()`，換來的保護只在「程式本身有漏洞」這種情境才有意義，因此不採用 |
 | 發布管線 | Actions 最小權限（`contents: read`、`pages: write`、`id-token: write`）；只發布五個執行檔；測試中加一項掃描，repo 內出現真實的 `/macros/s/<部署ID>/exec` 網址或疑似密碼就失敗 |
 | 無法防的 | 同一瀏覽器上的惡意外掛；密碼在你自己手上被偷。對策是可隨時輪替 |
 
@@ -233,12 +236,18 @@ docs/superpowers/        spec、plan、previews
 
 ## 10. 已知風險與待驗證
 
-1. **跨網站讀取 Apps Script 的回應是「事實上的行為」，不是 Google 的正式承諾**：審查員查到的資料指出 `text/plain` 的 POST 屬簡單請求、回應會經 302 轉到 `script.googleusercontent.com`、且帶有可讀的跨網域標頭，但**沒能在 Google 環境實測**，也沒能開啟官方頁面。因此實作的**第一步是由使用者做的冒煙測試**（部署一個極小的 `doPost`，從 Console 呼叫），確認前不繼續投入前端。測試內容：能讀到 JSON、中文不亂碼、`SpreadsheetApp.getActiveSpreadsheet()` 在網頁應用程式內可用、縮小權限範圍後仍可執行、改指令碼屬性即輪替密碼、`UrlFetchApp` 的 `timeoutSeconds` 是否被接受、從 `doPost` 抓 TVBS 標題、冷啟動與暖啟動的延遲。這份測試保留在 repo 文件中，日後出現「連不上」時可重跑。
+1. **跨網站讀取 Apps Script 的回應是「事實上的行為」，不是 Google 的正式承諾**。冒煙測試（`docs/apps-script-smoke-test.md`，使用者在自己的帳號執行）結果，2026-10-12：
+   - **T1 通過**：從 `https://example.com` 以 `text/plain` 的 `fetch` POST 呼叫，`status 200`、`redirected true`、最終網址在 `script.googleusercontent.com`、`application/json`，中文不亂碼；`openById` 讀到試算表（`ok:1`）。另發現：**綁定在試算表上的專案，`getActiveSpreadsheet()` 在網頁應用程式內也可用（`ok:1`）；先前的 `null` 是因為當時是獨立專案**。
+   - **T2 通過**：錯誤密碼回 `{"ok":false,"code":"unauthorized"}`，HTTP 仍是 200。
+   - **T3 通過**：見 §5「實測結論三」。
+   - **T4 符合預期**：以 `application/json` 呼叫在預檢階段被 CORS 擋下（`Failed to fetch`），證實必須用 `text/plain`。
+   - **T5（改指令碼屬性即輪替密碼、免重新部署）與 T6（冷啟動延遲）尚未測**。T5 結果出來前，文件一律寫「輪替後請執行一次 ping 確認」，不保證免重新部署。
+   - 這項依賴 Google 沒有公開承諾的行為，所以保留冒煙測試文件，日後出現「連不上」時可重跑，分辨是 Google 端變了還是程式的問題。
 2. **與 CSP 的互動**：`connect-src` 需同時允許 `script.google.com` 與 `script.googleusercontent.com`；Console 在 `example.com` 的測試沒有 CSP，抓不到這類問題，所以首次部署到 GitHub Pages 後要在真實頁面再測一次。
 3. **Apps Script 伺服器端抓 TVBS 標題的穩定度**：已實測一次成功。尚未確認的是長期穩定度：TVBS 或其防護日後可能對來自 Google 的請求出現驗證頁、限流或封鎖。被擋時退回手動輸入，不影響其他功能。
-4. **延遲**：Apps Script 冷啟動可能數秒（沒有官方數字），列表載入顯示「載入中」，並在冒煙測試實測。
+4. **延遲**：實測連續呼叫約 0.8–2.0 秒（`ping` 1.7–2.0 秒、錯誤密碼 0.8 秒、含抓取 TVBS 的 `fetchTitle` 2.4 秒）。這些不是冷啟動數字，閒置後的冷啟動延遲待 T6。列表載入顯示「載入中」。
 5. **配額**：消費者帳號每日 `UrlFetchApp` 約 2 萬次（二手資料，且配額可能調整）；沒有密碼的人仍可送請求消耗執行額度，影響是暫時性錯誤，不會外洩或改動資料。
 6. **同網域 localStorage 共用**：見 §8。
 7. **Pages 快取**：以 `?v=<commit sha>` 與 API 向下相容處理，實際快取時間於首次部署後以 `curl -I` 確認。
-8. **部署與設定需要使用者操作**：Claude 在此環境無法登入使用者的 Google 帳號，也不能改 repo 設定。使用者要做：Apps Script 貼入程式與部署、設定 `API_TOKEN`、Settings → Pages 選「GitHub Actions」。我會提供逐步說明。
+8. **部署與設定需要使用者操作**：Claude 在此環境無法登入使用者的 Google 帳號，也不能改 repo 設定。使用者要做：建立 Apps Script 專案並貼入程式與資訊清單、設定指令碼屬性 `API_TOKEN` 與 `SHEET_ID`、執行一次授權、部署為網頁應用程式、Settings → Pages 選「GitHub Actions」。我會提供逐步說明（冒煙測試已走過同一條路）。
 9. **效能**：資料量預期為數百到數千列，整表讀取即可；若超過約 5,000 列再考慮分頁。
