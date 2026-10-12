@@ -9,8 +9,10 @@
     items: [], cats: [], status: 'idle', error: '', cat: '全部', q: '', sort: 'oldest',
     pos: {}, pendingMark: null, markTimer: null, busy: new Set(),
     editing: null, draft: [], removed: [], saving: false, delTimer: null,
-    fetchSeq: 0, lastFetchUrl: null, origTouched: false, catTouched: false
+    fetchSeq: 0, lastFetchUrl: null, origTouched: false, catTouched: false,
+    sel: null, copied: null
   };
+  var MOBILE = window.matchMedia ? window.matchMedia('(max-width: 820px)') : { matches: false };
 
   var api = HotNewsApi.createClient({
     fetch: function (u, i) { return window.fetch(u, i); },
@@ -68,7 +70,13 @@
     toastTimer = setTimeout(function () { t.hidden = true; }, 2200);
   }
 
-  function copyText(text, okMsg) {
+  // 複製成功才顯示 okMsg 並呼叫 onOk（例如記下「已複製標題」）
+  function copyText(text, okMsg, onOk) {
+    function done(ok) {
+      if (!ok) { toast('複製失敗，請手動選取'); return; }
+      toast(okMsg);
+      if (onOk) onOk();
+    }
     function fallback() {
       var ta = h('textarea', { class: 'sr-copy', 'aria-hidden': 'true' });
       ta.value = text;
@@ -77,10 +85,10 @@
       var ok = false;
       try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
       document.body.removeChild(ta);
-      toast(ok ? okMsg : '複製失敗，請手動選取');
+      done(ok);
     }
     if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(function () { toast(okMsg); }, fallback);
+      navigator.clipboard.writeText(text).then(function () { done(true); }, fallback);
     } else fallback();
   }
 
@@ -157,42 +165,55 @@
 
   function markLabel(confirming, n, p) { return confirming ? '再按一次確認' + (n > 1 ? '（第 ' + (p + 1) + ' 版）' : '') : '標記已使用'; }
 
+  function rowTitle(it) { return it.titles.length ? it.titles[0].t.replace(/\s*\n\s*/g, ' ') : it.orig; }
+
+  function buildRow(it) {
+    var n = it.titles.length;
+    return h('div', { class: 'row', role: 'option', tabindex: '0', 'data-id': it.id, 'aria-selected': String(it.id === state.sel) },
+      h('h3', { text: rowTitle(it) }),
+      it.last == null ? h('span', { class: 'badge fresh', text: '從未使用' }) : h('span', { class: 'badge', text: ago(it.last) }),
+      h('div', { class: 'sub' }, h('span', { class: 'cat', text: it.cat }), h('span', { class: 'id', text: it.id }),
+        n > 1 ? h('span', { class: 'vcount', text: n + ' 版' }) : null));
+  }
+
   function buildCard(it) {
     var n = it.titles.length, p = posOf(it);
     var confirming = !!(state.pendingMark && state.pendingMark.id === it.id && state.pendingMark.idx === p);
     var used = it.last == null
       ? h('span', { class: 'used never' }, h('b', { text: '從未使用' }), ' · 使用 0 次')
       : h('span', { class: 'used' }, '上次使用 ', h('b', { text: fmt(it.last) }), '（' + ago(it.last) + '）· 共 ' + it.count + ' 次');
-    var head, nav = null;
-    if (!n) head = h('p', { class: 'title empty', text: '（尚未改標）' });
+    var titles, dots = null;
+    if (!n) titles = h('div', { class: 'car' }, h('p', { class: 'title empty', text: '（尚未改標）' }));
     else {
-      head = h('div', { class: 'car' + (n > 1 ? ' multi' : ''), tabindex: '0', 'aria-label': n > 1 ? '改標，可左右滑動或用方向鍵切換' : '改標' });
+      var car = h('div', { class: 'car' + (n > 1 ? ' multi' : ''), tabindex: '0', 'aria-label': n > 1 ? '改標，可左右滑動或用方向鍵切換' : '改標' });
       it.titles.forEach(function (v) {
         var info = v.last == null ? '此版本尚未使用' : '此版本上次使用 ' + fmt(v.last) + ' · ' + v.count + ' 次';
-        head.appendChild(h('div', { class: 'slide' }, h('p', { class: 'title', text: v.t }), h('div', { class: 'vinfo', text: info })));
+        car.appendChild(h('div', { class: 'slide' }, h('p', { class: 'title', text: v.t }), h('div', { class: 'vinfo', text: info })));
       });
+      titles = h('div', { class: 'carwrap' }, car);
       if (n > 1) {
-        var dots = h('span', { class: 'dots' });
-        it.titles.forEach(function (_, i) { dots.appendChild(h('span', { class: 'dot' + (i === p ? ' on' : '') })); });
-        nav = h('div', { class: 'carnav' },
-          h('button', { type: 'button', class: 'btn arrow', 'data-act': 'prev', 'aria-label': '上一個改標', disabled: p === 0 }, '‹'),
-          dots,
-          h('button', { type: 'button', class: 'btn arrow', 'data-act': 'next', 'aria-label': '下一個改標', disabled: p === n - 1 }, '›'),
-          h('span', { class: 'cnt', text: '第 ' + (p + 1) + ' / ' + n + ' 版' }));
+        titles.appendChild(h('button', { type: 'button', class: 'arrow l', 'data-act': 'prev', 'aria-label': '上一個改標', disabled: p === 0 }, '‹'));
+        titles.appendChild(h('button', { type: 'button', class: 'arrow r', 'data-act': 'next', 'aria-label': '下一個改標', disabled: p === n - 1 }, '›'));
+        dots = h('div', { class: 'dots', role: 'group', 'aria-label': '切換改標' });
+        it.titles.forEach(function (_, i) {
+          dots.appendChild(h('button', { type: 'button', class: 'dot' + (i === p ? ' on' : ''), 'data-act': 'dot', 'data-i': String(i), 'aria-label': '第 ' + (i + 1) + ' 版' }));
+        });
       }
     }
-    var link = h('a', { class: 'link', target: '_blank', rel: 'noopener noreferrer', text: '原文 ↗' });
-    if (isHttpUrl(it.url)) link.setAttribute('href', it.url);
     return h('article', { class: 'item', 'data-id': it.id },
-      h('div', { class: 'meta' }, h('span', { class: 'id', text: '#' + it.id }), h('span', { class: 'cat', text: it.cat }), used),
-      head, nav,
-      it.note ? h('p', { class: 'note', text: it.note }) : h('p', { class: 'note empty', text: '（尚無小編文）' }),
+      h('div', { class: 'chead' },
+        h('button', { type: 'button', class: 'back', 'data-act': 'back', 'aria-label': '返回列表' }, '‹'),
+        h('span', { class: 'ctitle' }, '新聞', h('small', { text: '#' + it.id })),
+        h('span', { class: 'cat', text: it.cat }), used),
+      h('div', { class: 'orig', title: it.orig }, h('span', { class: 'tag', text: '原始' }), h('span', { class: 'ot', text: it.orig })),
+      h('div', { class: 'field' }, h('span', { class: 'lbl', text: '改標' }), titles, dots),
+      h('div', { class: 'field' }, h('span', { class: 'lbl', text: '小編文' }),
+        it.note ? h('p', { class: 'note', text: it.note }) : h('p', { class: 'note empty', text: '（尚無小編文）' })),
       h('div', { class: 'acts' },
-        h('button', { type: 'button', class: 'btn copy', 'data-act': 'ctitle', disabled: !n || state.busy.has(it.id) }, '複製標題'),
-        h('button', { type: 'button', class: 'btn copy', 'data-act': 'cnote' }, '複製留言'),
-        h('button', { type: 'button', class: 'btn' + (confirming ? ' confirm' : ''), 'data-act': 'mark', disabled: state.busy.has(it.id) }, markLabel(confirming, n, p)),
-        h('button', { type: 'button', class: 'btn', 'data-act': 'edit' }, '編輯'),
-        h('div', { class: 'src', title: it.orig }, h('span', { class: 'tag', text: '原始' }), h('span', { class: 'ot', text: it.orig }), link)));
+        h('button', { type: 'button', class: 'btn', 'data-act': 'ctitle', disabled: !n || state.busy.has(it.id) }, '複製標題'),
+        h('button', { type: 'button', class: 'btn', 'data-act': 'cnote' }, '複製留言'),
+        h('button', { type: 'button', class: 'btn primary' + (confirming ? ' confirm' : ''), 'data-act': 'mark', disabled: state.busy.has(it.id) }, markLabel(confirming, n, p)),
+        h('button', { type: 'button', class: 'btn', 'data-act': 'edit' }, '編輯')));
   }
 
   function stateBox(text, btnText, act) {
@@ -201,21 +222,39 @@
     return box;
   }
 
-  function render() {
+  function showDetail(on) { document.body.classList.toggle('detail', !!on); }
+
+  function renderCard(empty) {
+    var box = $('card'), it = !empty && state.sel ? byId(state.sel) : null;
     drag = null;
-    renderChips();
+    box.replaceChildren(it ? buildCard(it) : h('div', { class: 'card-empty', text: '從左邊選一則新聞，這裡會顯示改標、小編文和複製按鈕。' }));
+    var car = box.querySelector('.car');
+    if (it && car && it.titles.length) car.scrollLeft = posOf(it) * stepOf(car);
+  }
+
+  function render() {
     var list = $('list');
-    if (state.status === 'loading') { list.replaceChildren(stateBox('載入中…')); return; }
-    if (state.status === 'error') { list.replaceChildren(stateBox(state.error || '載入失敗。', '重試', 'retry')); return; }
-    if (state.status === 'idle') { list.replaceChildren(stateBox('尚未連線。請先到「設定」輸入 Apps Script 網址與密碼。', '開啟設定', 'settings')); return; }
-    if (!state.items.length) { list.replaceChildren(stateBox('還沒有任何新聞。', '＋ 新增新聞', 'add-first')); return; }
+    renderChips();
+    function plain(node) { list.replaceChildren(node); $('cnt').textContent = ''; showDetail(false); renderCard(true); }
+    if (state.status === 'loading') { plain(stateBox('載入中…')); return; }
+    if (state.status === 'error') { plain(stateBox(state.error || '載入失敗。', '重試', 'retry')); return; }
+    if (state.status === 'idle') { plain(stateBox('尚未連線。請先到「設定」輸入 Apps Script 網址與密碼。', '開啟設定', 'settings')); return; }
+    if (!state.items.length) { plain(stateBox('還沒有任何新聞。', '＋ 新增新聞', 'add-first')); return; }
     var r = visibleItems();
-    if (!r.length) { list.replaceChildren(h('div', { class: 'none', text: '沒有符合的新聞。調整搜尋或分類，或按「＋ 新增新聞」。' })); return; }
-    list.replaceChildren.apply(list, r.map(buildCard));
-    Array.prototype.forEach.call(list.querySelectorAll('.car'), function (car) {
-      var it = byId(car.closest('.item').getAttribute('data-id'));
-      car.scrollLeft = posOf(it) * stepOf(car);
-    });
+    $('cnt').textContent = '共 ' + r.length + ' 則';
+    if (!r.length) { list.replaceChildren(h('div', { class: 'none', text: '沒有符合的新聞。調整搜尋或分類，或按「＋ 新增新聞」。' })); state.sel = null; showDetail(false); renderCard(true); return; }
+    if (!r.some(function (i) { return i.id === state.sel; })) {   // 目前選的不在清單裡：改選第一則
+      state.sel = r[0].id; state.copied = null; state.pendingMark = null; showDetail(false);
+    }
+    list.replaceChildren.apply(list, r.map(buildRow));
+    renderCard();
+  }
+
+  function selectItem(id) {
+    if (state.sel !== id) { state.sel = id; state.copied = null; clearPending(); }
+    Array.prototype.forEach.call($('list').querySelectorAll('.row'), function (r) { r.setAttribute('aria-selected', String(r.getAttribute('data-id') === id)); });
+    if (MOBILE.matches) { showDetail(true); window.scrollTo(0, 0); }
+    renderCard();
   }
 
   /* ---------- 改標輪播（移植自已核准的預覽） ---------- */
@@ -224,12 +263,15 @@
   function idxOf(car) { return Math.max(0, Math.min(car.children.length - 1, Math.round(car.scrollLeft / (stepOf(car) || 1)))); }
   function goTo(car, i) {
     i = Math.max(0, Math.min(car.children.length - 1, i));
+    car._anim = (car._anim || 0) + 1;                        // 取消還在跑的拖曳回彈動畫，避免它把位置拉回去
+    car._busy = false; car.classList.remove('dragging');
     car.scrollTo({ left: i * stepOf(car), behavior: REDUCED ? 'auto' : 'smooth' });
   }
   function animateScroll(car, to, done) {
-    var from = car.scrollLeft, t0 = performance.now(), dur = REDUCED ? 0 : 220;
+    var from = car.scrollLeft, t0 = performance.now(), dur = REDUCED ? 0 : 220, token = car._anim = (car._anim || 0) + 1;
     if (!dur || Math.abs(to - from) < 1) { car.scrollLeft = to; done(); return; }
     (function tick(now) {
+      if (car._anim !== token) return;                       // 被 goTo 取消
       var k = Math.min(1, (now - t0) / dur);
       car.scrollLeft = from + (to - from) * (1 - Math.pow(1 - k, 3));
       if (k < 1) requestAnimationFrame(tick); else done();
@@ -240,18 +282,16 @@
     var prev = itemEl.querySelector('[data-act=prev]'), next = itemEl.querySelector('[data-act=next]');
     if (prev) prev.disabled = idx === 0;
     if (next) next.disabled = idx === n - 1;
-    var cnt = itemEl.querySelector('.cnt');
-    if (cnt) cnt.textContent = '第 ' + (idx + 1) + ' / ' + n + ' 版';
   }
-  function clearPending(itemEl) {
+  function clearPending() {
     state.pendingMark = null;
     clearTimeout(state.markTimer);
-    var b = itemEl && itemEl.querySelector('[data-act=mark]');
-    if (b) { b.textContent = '標記已使用'; b.classList.remove('confirm'); }
+    var b = $('card').querySelector('[data-act=mark]');
+    if (b) { b.textContent = markLabel(false); b.classList.remove('confirm'); }
   }
 
-  var list = $('list');
-  list.addEventListener('scroll', function (e) {
+  var cardBox = $('card');
+  cardBox.addEventListener('scroll', function (e) {
     var car = e.target;
     if (!car.classList || !car.classList.contains('car')) return;
     cancelAnimationFrame(car._r);
@@ -263,11 +303,15 @@
       state.pos[id] = idx;
       syncNav(itemEl, idx, it.titles.length);
       var pm = state.pendingMark;
-      if (pm && pm.id === id && pm.idx !== idx) clearPending(itemEl);
+      if (pm && pm.id === id && pm.idx !== idx) clearPending();
     });
   }, true);
+  window.addEventListener('resize', function () {   // 斷點切換後把改標位置補回來
+    var car = cardBox.querySelector('.car'), it = state.sel && byId(state.sel);
+    if (car && it && it.titles.length && car.clientWidth) car.scrollLeft = posOf(it) * stepOf(car);
+  });
 
-  list.addEventListener('pointerdown', function (e) {
+  cardBox.addEventListener('pointerdown', function (e) {
     if (e.pointerType !== 'mouse' || e.button !== 0) return;
     var car = e.target.closest('.car');
     if (!car || car.children.length < 2 || car._busy) return;
@@ -277,7 +321,7 @@
     if (sel) sel.removeAllRanges();
     try { car.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
   });
-  list.addEventListener('pointermove', function (e) { if (drag) drag.car.scrollLeft = drag.left - (e.clientX - drag.x); });
+  cardBox.addEventListener('pointermove', function (e) { if (drag) drag.car.scrollLeft = drag.left - (e.clientX - drag.x); });
   function endDrag(e) {
     if (!drag) return;
     var car = drag.car, step = stepOf(car), moved = drag.x - e.clientX, target = drag.start;
@@ -287,9 +331,9 @@
     car._busy = true;
     animateScroll(car, target * step, function () { car._busy = false; car.classList.remove('dragging'); });
   }
-  list.addEventListener('pointerup', endDrag);
-  list.addEventListener('pointercancel', endDrag);
-  list.addEventListener('wheel', function (e) {
+  cardBox.addEventListener('pointerup', endDrag);
+  cardBox.addEventListener('pointercancel', endDrag);
+  cardBox.addEventListener('wheel', function (e) {
     var car = e.target.closest && e.target.closest('.car');
     if (!car || car.children.length < 2) return;
     var k = e.deltaMode === 1 ? 16 : 1, dx = e.deltaX * k, dy = e.deltaY * k;
@@ -305,57 +349,105 @@
     car._done = true;
     goTo(car, idxOf(car) + (car._acc > 0 ? 1 : -1));
   }, { passive: false });
-  list.addEventListener('keydown', function (e) {
+  cardBox.addEventListener('keydown', function (e) {
     var car = e.target.closest && e.target.closest('.car');
     if (!car || car.children.length < 2 || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
     e.preventDefault();
     goTo(car, idxOf(car) + (e.key === 'ArrowRight' ? 1 : -1));
   });
 
-  /* ---------- 列表上的按鈕 ---------- */
+  /* ---------- 清單：選取一則；載入失敗／空白時的按鈕 ---------- */
+  var list = $('list');
   list.addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-act]');
+    if (b) {
+      var act = b.getAttribute('data-act');
+      if (act === 'retry') loadItems();
+      else if (act === 'settings') openSettings();
+      else if (act === 'add-first') openDialog(null);
+      return;
+    }
+    var row = e.target.closest('.row');
+    if (row) selectItem(row.getAttribute('data-id'));
+  });
+  list.addEventListener('keydown', function (e) {
+    var row = e.target.closest && e.target.closest('.row');
+    if (!row) return;
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectItem(row.getAttribute('data-id')); return; }
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    var next = e.key === 'ArrowDown' ? row.nextElementSibling : row.previousElementSibling;
+    if (!next || !next.classList.contains('row')) return;
+    e.preventDefault();
+    selectItem(next.getAttribute('data-id'));
+    var again = list.querySelector('.row[data-id="' + next.getAttribute('data-id') + '"]');
+    if (again) again.focus();
+  });
+
+  /* ---------- 卡片上的按鈕 ---------- */
+  cardBox.addEventListener('click', function (e) {
     var b = e.target.closest('button[data-act]');
     if (!b) return;
     var act = b.getAttribute('data-act');
-    if (act === 'retry') { loadItems(); return; }
-    if (act === 'settings') { openSettings(); return; }
-    if (act === 'add-first') { openDialog(null); return; }
+    if (act === 'back') { showDetail(false); return; }
     var itemEl = b.closest('.item');
     if (!itemEl) return;
     var id = itemEl.getAttribute('data-id'), it = byId(id);
     if (!it) return;
     var p = posOf(it), n = it.titles.length;
-    if (act === 'ctitle') copyText(it.titles[p].t, n > 1 ? '已複製第 ' + (p + 1) + ' 版標題' : '已複製標題');
-    else if (act === 'cnote') copyText(buildComment(it), '已複製留言');
-    else if (act === 'edit') openDialog(it);
-    else if (act === 'prev' || act === 'next') {
+    if (act === 'ctitle') {
+      var ver = it.titles[p].ver;
+      copyText(it.titles[p].t, n > 1 ? '已複製第 ' + (p + 1) + ' 版標題' : '已複製標題', function () { state.copied = { id: id, ver: ver }; });
+    } else if (act === 'cnote') {
+      copyText(buildComment(it), '已複製留言', function () {
+        var c = state.copied;
+        if (c && c.id === id) { state.copied = null; autoMark(c); }   // 先複製標題、再複製同一篇的留言 → 視為已使用
+      });
+    } else if (act === 'edit') openDialog(it);
+    else if (act === 'prev' || act === 'next' || act === 'dot') {
       var car = itemEl.querySelector('.car');
-      if (car) goTo(car, p + (act === 'next' ? 1 : -1));
-    } else if (act === 'mark') markUsed(it, itemEl, b, p);
+      if (car) goTo(car, act === 'dot' ? +b.getAttribute('data-i') : p + (act === 'next' ? 1 : -1));
+    } else if (act === 'mark') markUsed(it, b, p);
   });
 
-  function markUsed(it, itemEl, btn, p) {
-    var n = it.titles.length, pm = state.pendingMark;
+  // 實際送出「已使用」。lead：提示文字的開頭（手動：已；複製留言觸發：已複製留言，並）
+  function doMark(it, p, lead) {
+    var n = it.titles.length;
     if (state.busy.has(it.id)) return;
-    if (!(pm && pm.id === it.id && pm.idx === p)) {       // 第一下：進入確認狀態，3 秒後還原
-      clearPending(list.querySelector('.item .confirm') && list.querySelector('.item .confirm').closest('.item'));
-      state.pendingMark = { id: it.id, idx: p };
-      btn.textContent = markLabel(true, n, p);
-      btn.classList.add('confirm');
-      state.markTimer = setTimeout(function () { clearPending(list.querySelector('.item[data-id="' + it.id + '"]')); }, 3000);
-      return;
-    }
-    clearPending(itemEl);
+    clearPending();
+    if (state.copied && state.copied.id === it.id) state.copied = null;
     state.busy.add(it.id);
-    btn.disabled = true;
+    var mb = $('card').querySelector('[data-act=mark]');
+    if (mb) mb.disabled = true;
     var args = { id: it.id };
     if (n) args.ver = it.titles[p].ver;
     mutate('markUsed', args).then(function (data) {
       if (!data) return;
       replaceItem(data.item);
       var v = n ? data.item.titles.filter(function (x) { return x.ver === args.ver; })[0] : null;
-      toast(v ? '已記錄第 ' + (p + 1) + ' 版使用，此版本共 ' + v.count + ' 次' : '已標記使用，共 ' + data.item.count + ' 次');
+      toast(v ? lead + '記錄第 ' + (p + 1) + ' 版使用，此版本共 ' + v.count + ' 次' : lead + '標記使用，共 ' + data.item.count + ' 次');
     }).catch(fail).then(function () { state.busy.delete(it.id); render(); });
+  }
+
+  function autoMark(c) {
+    var it = byId(c.id);
+    if (!it) return;
+    var p = it.titles.findIndex(function (v) { return v.ver === c.ver; });
+    if (p === -1) return;                                   // 那一版已被刪掉
+    doMark(it, p, '已複製留言，並');
+  }
+
+  function markUsed(it, btn, p) {
+    var n = it.titles.length, pm = state.pendingMark;
+    if (state.busy.has(it.id)) return;
+    if (!(pm && pm.id === it.id && pm.idx === p)) {       // 第一下：進入確認狀態，3 秒後還原
+      clearPending();
+      state.pendingMark = { id: it.id, idx: p };
+      btn.textContent = markLabel(true, n, p);
+      btn.classList.add('confirm');
+      state.markTimer = setTimeout(clearPending, 3000);
+      return;
+    }
+    doMark(it, p, '已');
   }
 
   $('chips').addEventListener('click', function (e) {

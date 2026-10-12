@@ -6,7 +6,7 @@ const path = require('node:path');
 const { buildSite } = require('../scripts/build-site.js');
 
 const CSP = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src https://script.google.com https://script.googleusercontent.com; img-src 'self' data:; base-uri 'none'; form-action 'none'";
-const IDS = ['settingsBtn', 'addBtn', 'q', 'sort', 'chips', 'list', 'settingsDlg', 'settingsForm', 'sUrl', 'sToken',
+const IDS = ['settingsBtn', 'addBtn', 'q', 'sort', 'chips', 'cnt', 'list', 'card', 'settingsDlg', 'settingsForm', 'sUrl', 'sToken',
   'sRemember', 'sMsg', 'sSteps', 'sClear', 'sSave', 'dlg', 'form', 'dlgTitle', 'fUrl', 'idHint', 'fCat', 'fOrig',
   'titleHint', 'vars', 'addVar', 'fNote', 'err', 'del', 'cancel', 'save', 'toast'];
 
