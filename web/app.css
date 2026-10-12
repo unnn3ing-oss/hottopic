@@ -104,3 +104,4 @@ label.check input{width:auto;margin-top:4px}
 label.check small{color:var(--muted)}
 .steps{margin:0;padding-left:20px;font-size:13px;color:var(--muted)}
 .state{padding:32px 16px;text-align:center;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:10px}
+label input,label select,label textarea{box-sizing:border-box}

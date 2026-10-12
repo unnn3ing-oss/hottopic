@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **2026-10-12 執行範圍調整（使用者指示：先做前端、後端等前端完成再寫）**：已完成 Task 1、2、10、11，以及精簡版的 Task 12–17（`app.js` 一次完成，e2e 改為 `test/e2e/smoke.e2e.js` 一支冒煙測試＋記憶體假 API `test/helpers/fake-api.js`，不做 23 項輪播與逐情境套件）。**待做**：Task 3（標題抽取）與 Task 4–9（`Code.gs`、`appsscript.json`、後端測試台）。另外 Task 10/12/17 的「先 GET 再 ping」已改為單一 POST `ping`（理由見規格 §5）。
+
 **Goal:** 做出「熱門新聞庫」：GitHub Pages 靜態網頁當介面、Google Apps Script Web App 當 JSON API、私人 Google 試算表存資料，可新增／編輯／刪除新聞、多版改標輪播、複製標題與留言、標記已使用、自動帶入原始標題。
 
 **Architecture:** `apps-script/lib.js`（純函式，Apps Script、瀏覽器、node 三處共用）＋ `apps-script/Code.gs`（`doGet`/`doPost`，先驗密碼再分派動作）＋ `web/`（`index.html`、`app.css`、`api.js`、`app.js`，無框架、無打包）。測試分三層：`lib.js` 單元測試（在沒有 `URL`／DOM 的 `vm` 沙箱內執行，模擬 Apps Script 環境）、`Code.gs` 後端測試（假的 Google 物件，一律經由 `doPost`）、Playwright e2e（載入建置後的 `_site/`，攔截 Apps Script 網址並轉給同一份後端測試用假物件）。
