@@ -587,7 +587,7 @@
       });
       req = { id: it.id, cat: cat, note: note, edit: edit, add: add, remove: remove };
     }
-    state.saving = true; $('save').disabled = true;
+    state.saving = true; $('save').disabled = true; $('save').textContent = '儲存中…';
     mutate(action, req).then(function (data) {
       if (!data) { $('dlg').close(); return; }
       replaceItem(data.item);
@@ -597,7 +597,7 @@
       if (err.code === 'duplicate' && err.existing) { replaceItem(err.existing); render(); state.saving = false; openDialog(err.existing); return; }
       if (err.code === 'unauthorized') { $('dlg').close(); return; }
       setErr(err.message);
-    }).then(function () { state.saving = false; $('save').disabled = false; });
+    }).then(function () { state.saving = false; $('save').disabled = false; $('save').textContent = '儲存'; });
   });
 
   /* ---------- 啟動 ---------- */
