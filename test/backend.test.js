@@ -157,7 +157,7 @@ test('addItem 先設純文字格式再寫入：公式字元與前導零原樣保
   const { items } = s.list();
   assert.deepEqual(items.filter((i) => i.id !== '0042').map((i) => [i.orig, i.note, i.titles[0].t]), [['=1+1', '=1+1', '=1+1'], ['+1', '+1', '+1'], ['-1', '-1', '-1'], ['@SUM(1)', '@SUM(1)', '@SUM(1)']]);
   const log = s.gas.opLog;
-  const fmts = log.filter((x) => x.op === 'setNumberFormat' && x.fmt === '@');
+  const fmts = log.filter((x) => x.op === 'setNumberFormats' && x.fmts[0].includes('@'));
   assert.ok(fmts.length > 0);
   fmts.forEach((f) => {   // 每次設純文字格式後，同一範圍的下一個寫入必須是 setValues（先格式後值）
     const i = log.indexOf(f), next = log.slice(i + 1).find((x) => x.sheet === f.sheet && x.r === f.r && x.c === f.c);
@@ -276,7 +276,7 @@ test('markUsed：整則與該版本更新，其他版本不變；沒有改標只
   assert.equal(code(s.call('markUsed', { id: 'nope' })), 'not_found');
   assert.equal(code(s.call('markUsed', { id: '4032757' })), 'bad_request');
   assert.equal(code(s.call('markUsed', { id: '4032757', ver: 1.5 })), 'bad_request');
-  assert.ok(s.gas.opLog.some((o) => o.op === 'setNumberFormat' && o.fmt === 'yyyy/MM/dd HH:mm'));
+  assert.ok(s.gas.opLog.some((o) => o.op === 'setNumberFormats' && o.fmts[0].includes('yyyy/MM/dd HH:mm')));
 });
 
 /* ---------- fetchTitle ---------- */
@@ -304,4 +304,25 @@ test('fetchTitle 失敗都回空結果與原因；不合規網址不發出請求
   const s = setup();
   for (const url of ['ftp://x.com/a', 'https://user:pw@x.com/a', 'http://127.0.0.1/a', 'http://localhost/a', 'https://x.com:8443/a', undefined]) assert.equal(code(s.call('fetchTitle', { url })), 'bad_request', String(url));
   assert.equal(s.gas.calls.urlFetches.length, 0);
+});
+
+/* ---------- 效能：試算表呼叫次數（每次呼叫約 0.1–0.3 秒網路往返，次數就是延遲）---------- */
+test('試算表呼叫次數上限：新增、標記已使用、更新、列表', () => {
+  const s = setup(); s.call('ping');
+  const calls = (fn) => { const b = s.gas.calls.sheetCalls; const r = fn(); assert.equal(r.ok, true); return s.gas.calls.sheetCalls - b; };
+  for (let i = 0; i < 30; i++) add(s, { url: 'https://news.tvbs.com.tw/local/2' + i, titles: ['a', 'b', 'c'] });
+  assert.ok(calls(() => add(s, { url: 'https://news.tvbs.com.tw/local/999', titles: ['a', 'b', 'c'] })) <= 10, 'addItem（3 改標）');
+  assert.ok(calls(() => add(s, { url: 'https://news.tvbs.com.tw/local/998' })) <= 7, 'addItem（無改標）');
+  assert.ok(calls(() => s.call('markUsed', { id: '999', ver: 1 })) <= 9, 'markUsed');
+  assert.ok(calls(() => s.call('updateItem', { id: '999', cat: '社會', note: 'x', add: ['d'] })) <= 10, 'updateItem');
+  assert.ok(calls(() => s.call('listItems')) <= 5, 'listItems');
+});
+
+test('addItem／markUsed／updateItem 直接回傳的 item 與重新讀取的結果一致', () => {
+  const s = setup(); s.call('ping');
+  const same = (r) => assert.deepEqual(JSON.parse(JSON.stringify(r.data.item)), JSON.parse(JSON.stringify(s.list().items.find((i) => i.id === r.data.item.id))));
+  same(add(s, { url: 'https://news.tvbs.com.tw/local/301', orig: '  原始\n標題 ', note: '備註\r\n', titles: ['一', '二', ''] }));
+  same(s.call('markUsed', { id: '301', ver: 2 }));
+  same(s.call('updateItem', { id: '301', cat: '健康', note: '新', edit: [{ ver: 1, t: '改一' }], remove: [2], add: ['三'] }));
+  same(s.call('markUsed', { id: '301', ver: 3 }));
 });

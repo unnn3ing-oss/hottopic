@@ -10,7 +10,7 @@ function createFakeGas(opts = {}) {
     lockHeld: false,
     urlFetch: () => ({ code: 200, text: '' }),
     spreadsheetThrows: null,
-    calls: { spreadsheetOpens: 0, urlFetches: [], logs: [], timezone: null },
+    calls: { spreadsheetOpens: 0, sheetCalls: 0, urlFetches: [], logs: [], timezone: null },
     opLog: [],
     setNow(ms) { gas.now = ms; },
     setProperty(k, v) { if (v === null) delete gas.props[k]; else gas.props[k] = v; }
@@ -24,23 +24,39 @@ function createFakeGas(opts = {}) {
     const sheet = {
       getName: () => name,
       getLastRow() {
+        gas.calls.sheetCalls++;
         for (let i = data.rows.length - 1; i >= 0; i--) if (data.rows[i].some((v) => v !== '' && v != null)) return i + 1;
         return 0;
+      },
+      getDataRange() {   // 有內容的整塊範圍（含標題列）；空分頁回 1x1 空白
+        const lr = (() => { for (let i = data.rows.length - 1; i >= 0; i--) if (data.rows[i].some((v) => v !== '' && v != null)) return i + 1; return 0; })();
+        const lc = Math.max(1, ...data.rows.slice(0, lr).map((rw) => rw.length));
+        return { getValues() { gas.calls.sheetCalls++; return sheet.getRange(1, 1, Math.max(lr, 1), lc).getValuesQuiet(); } };
       },
       getRange(r, c, nr = 1, nc = 1) {
         if (nr < 1 || nc < 1 || r < 1 || c < 1) throw new Error('範圍無效');   // 真實 API 如此
         return {
-          getValues() {
+          getValues() { gas.calls.sheetCalls++; return this.getValuesQuiet(); },
+          getValuesQuiet() {
             const out = [];
             for (let i = 0; i < nr; i++) { const row = []; for (let j = 0; j < nc; j++) row.push(cell(r + i, c + j)); out.push(row); }
             return out;
           },
+          setNumberFormats(f2d) {   // 一次設整塊範圍的格式（每格各自的格式）
+            gas.calls.sheetCalls++;
+            if (f2d.length !== nr || f2d.some((row) => row.length !== nc)) throw new Error('格式的大小與範圍不符');
+            gas.opLog.push({ op: 'setNumberFormats', sheet: name, r, c, nr, nc, fmts: f2d });
+            f2d.forEach((row, i) => row.forEach((f, j) => data.fmt.set((r + i) + ',' + (c + j), f)));
+            return this;
+          },
           setNumberFormat(f) {
+            gas.calls.sheetCalls++;
             gas.opLog.push({ op: 'setNumberFormat', sheet: name, r, c, nr, nc, fmt: f });
             for (let i = 0; i < nr; i++) for (let j = 0; j < nc; j++) data.fmt.set((r + i) + ',' + (c + j), f);
             return this;
           },
           setValues(vals) {
+            gas.calls.sheetCalls++;
             if (vals.length !== nr || vals.some((row) => row.length !== nc)) throw new Error('值的大小與範圍不符');
             gas.opLog.push({ op: 'setValues', sheet: name, r, c, nr, nc });
             vals.forEach((row, i) => row.forEach((v, j) => {
@@ -58,7 +74,7 @@ function createFakeGas(opts = {}) {
           setValue(v) { return this.setValues([[v]]); }
         };
       },
-      deleteRow(row) { gas.opLog.push({ op: 'deleteRow', sheet: name, row }); data.rows.splice(row - 1, 1); }
+      deleteRow(row) { gas.calls.sheetCalls++; gas.opLog.push({ op: 'deleteRow', sheet: name, row }); data.rows.splice(row - 1, 1); }
     };
     return sheet;
   }
@@ -101,7 +117,7 @@ function createFakeGas(opts = {}) {
   gas.globals = () => ({
     SpreadsheetApp: {
       openById(id) {
-        gas.calls.spreadsheetOpens++;
+        gas.calls.spreadsheetOpens++; gas.calls.sheetCalls++;
         if (gas.spreadsheetThrows) throw new Error(gas.spreadsheetThrows);
         if (id !== SHEET_ID) throw new Error('找不到試算表');
         return ss;

@@ -80,22 +80,19 @@ function sheetId_() {
   return id;
 }
 
-// 文字欄位一律先設純文字格式再寫入（避免 =、+、-、@ 開頭被當公式、0042 被吃掉前導零）
+// 試算表每次呼叫都是一次網路往返（約 0.1–0.3 秒），所以一律「整塊範圍一次寫入」：
+// 先 setNumberFormats（文字欄 '@'，避免 =、+、-、@ 開頭被當公式、0042 被吃掉前導零），再 setValues。
+var FMT_TEXT = '@', FMT_NUM = '0';
+function writeBlock_(sheet, row, col, formats, rows) {
+  var range = sheet.getRange(row, col, rows.length, formats.length);
+  range.setNumberFormats(rows.map(function () { return formats; }));
+  range.setValues(rows);
+}
 function writeText_(sheet, row, col, values) {
-  var range = sheet.getRange(row, col, values.length, values[0].length);
-  range.setNumberFormat('@');
-  range.setValues(values);
+  writeBlock_(sheet, row, col, values[0].map(function () { return FMT_TEXT; }), values);
 }
-function writeNumber_(sheet, row, col, value) {
-  var range = sheet.getRange(row, col, 1, 1);
-  range.setNumberFormat('0');
-  range.setValues([[value]]);
-}
-function writeTime_(sheet, row, col, date) {
-  var range = sheet.getRange(row, col, 1, 1);
-  range.setNumberFormat(DATE_FORMAT);
-  range.setValues([[date === null ? '' : date]]);
-}
+function newsFormats_() { return [FMT_TEXT, FMT_TEXT, FMT_TEXT, FMT_TEXT, FMT_TEXT, DATE_FORMAT, FMT_NUM, DATE_FORMAT]; }
+function editFormats_() { return [FMT_TEXT, FMT_NUM, FMT_TEXT, DATE_FORMAT, FMT_NUM, DATE_FORMAT]; }
 
 function ensureSheet_(ss, name, headers, defaults) {
   var sh = ss.getSheetByName(name);
@@ -125,13 +122,13 @@ function db_() {
 function str_(v) { return v === null || v === undefined ? '' : String(v); }
 function toInt_(v) { var n = Number(v); return isFinite(n) && n >= 0 ? Math.floor(n) : 0; }
 function toMs_(v) { return v instanceof Date && !isNaN(v.getTime()) ? v.getTime() : null; }
-function rows_(sheet, cols) {
-  var last = sheet.getLastRow();
-  return last < 2 ? [] : sheet.getRange(2, 1, last - 1, cols).getValues();
+function rows_(sheet, cols) {   // 一次呼叫讀整頁（含標題列），去掉標題後補齊欄數
+  var all = sheet.getDataRange().getValues();
+  return all.slice(1).map(function (r) { while (r.length < cols) r.push(''); return r; });
 }
 
 // 讀整份資料；手動編輯造成的壞資料（空白列、孤兒改標、非數字版本號…）略過而不是整個失敗
-function readAll_(db) {
+function readAll_(db, light) {   // light：只讀新聞與分類（新增時只需要編號與分類，不讀改標）
   var items = [], byId = {}, newsRow = {}, editRows = {}, verRow = {};
   rows_(db.news, 8).forEach(function (r, i) {
     var id = str_(r[0]).trim();
@@ -140,7 +137,7 @@ function readAll_(db) {
       last: toMs_(r[5]), count: toInt_(r[6]), created: toMs_(r[7]) || 0, titles: [] };
     byId[id] = item; newsRow[id] = i + 2; items.push(item);
   });
-  rows_(db.edits, 6).forEach(function (r, i) {
+  (light ? [] : rows_(db.edits, 6)).forEach(function (r, i) {
     var id = str_(r[0]).trim();
     if (!byId[id]) return;
     (editRows[id] = editRows[id] || []).push(i + 2);
@@ -166,17 +163,10 @@ function withLock_(fn) {
   try { return fn(); } finally { try { lock.releaseLock(); } catch (e) { /* ignore */ } }
 }
 
-function appendEditRows_(db, id, vers, now) {   // vers: [{ver, t}]
-  var row = db.edits.getLastRow() + 1;
-  vers.forEach(function (v, i) {
-    var r = row + i;
-    writeText_(db.edits, r, 1, [[id]]);
-    writeNumber_(db.edits, r, 2, v.ver);
-    writeText_(db.edits, r, 3, [[v.t]]);
-    writeTime_(db.edits, r, 4, null);
-    writeNumber_(db.edits, r, 5, 0);
-    writeTime_(db.edits, r, 6, now);
-  });
+function appendEditRows_(db, id, vers, now) {   // vers: [{ver, t}]；整批一次寫入
+  if (!vers.length) return;
+  writeBlock_(db.edits, db.edits.getLastRow() + 1, 1, editFormats_(),
+    vers.map(function (v) { return [id, v.ver, v.t, '', 0, now]; }));
 }
 
 /* ---------- 輸入驗證 ---------- */
@@ -219,18 +209,17 @@ function addItem_(args) {
   var titles = textList_(args.titles);
   if (!url || !orig || !cat || orig.length > LIMITS.orig || titles.length > LIMITS.variants) failure_('bad_request');
   var db = db_();
-  if (readAll_(db).cats.indexOf(cat) === -1) failure_('bad_request');
   return withLock_(function () {
-    var all = readAll_(db);
+    var all = readAll_(db, true);   // 只需要編號與分類；改標只在重複時才讀
+    if (all.cats.indexOf(cat) === -1) failure_('bad_request');
     var id = extractId(url) || nextSerialId(all.items.map(function (i) { return i.id; }));
-    if (all.byId[id]) failure_('duplicate', { existing: all.byId[id] });
-    var now = new Date(), row = db.news.getLastRow() + 1;
-    writeText_(db.news, row, 1, [[id, cat, orig, url, note]]);
-    writeTime_(db.news, row, 6, null);
-    writeNumber_(db.news, row, 7, 0);
-    writeTime_(db.news, row, 8, now);
-    appendEditRows_(db, id, titles.map(function (t, i) { return { ver: i + 1, t: t }; }), now);
-    return { item: readAll_(db).byId[id] };
+    if (all.byId[id]) failure_('duplicate', { existing: readAll_(db).byId[id] });
+    var now = new Date();
+    writeBlock_(db.news, db.news.getLastRow() + 1, 1, newsFormats_(), [[id, cat, orig, url, note, '', 0, now]]);
+    var vers = titles.map(function (t, i) { return { ver: i + 1, t: t }; });
+    appendEditRows_(db, id, vers, now);
+    return { item: { id: id, cat: cat, orig: orig, url: url, note: note, last: null, count: 0, created: now.getTime(),
+      titles: vers.map(function (v) { return { ver: v.ver, t: v.t, last: null, count: 0 }; }) } };   // 直接組出結果，不再重讀整份資料
   });
 }
 
@@ -261,13 +250,19 @@ function updateItem_(args) {
     if (cat !== item.cat && all.cats.indexOf(cat) === -1) failure_('bad_request');
     var maxVer = item.titles.reduce(function (m, v) { return Math.max(m, v.ver); }, 0);
     var row = all.newsRow[id];
-    writeText_(db.news, row, 2, [[cat]]);
-    writeText_(db.news, row, 5, [[note]]);
+    writeText_(db.news, row, 2, [[cat, item.orig, item.url, note]]);   // 第 2–5 欄一次寫入（原始標題與網址原值寫回）
     edits.forEach(function (e) { writeText_(db.edits, all.verRow[id][e.ver], 3, [[e.t]]); });
     remove.map(function (v) { return all.verRow[id][v]; }).sort(function (a, b) { return b - a; })
       .forEach(function (r) { db.edits.deleteRow(r); });
-    appendEditRows_(db, id, add.map(function (t, i) { return { ver: maxVer + 1 + i, t: t }; }), new Date());
-    return { item: readAll_(db).byId[id] };
+    var added = add.map(function (t, i) { return { ver: maxVer + 1 + i, t: t }; });
+    appendEditRows_(db, id, added, new Date());
+    var edited = {}; edits.forEach(function (e) { edited[e.ver] = e.t; });
+    var removed = {}; remove.forEach(function (v) { removed[v] = true; });
+    item.cat = cat; item.note = note;   // 直接組出結果回傳，不再重讀整份
+    item.titles = item.titles.filter(function (v) { return !removed[v.ver]; })
+      .map(function (v) { return { ver: v.ver, t: edited[v.ver] !== undefined ? edited[v.ver] : v.t, last: v.last, count: v.count }; })
+      .concat(added.map(function (v) { return { ver: v.ver, t: v.t, last: null, count: 0 }; }));
+    return { item: item };
   });
 }
 
@@ -298,14 +293,11 @@ function markUsed_(args) {
       if (!variant) failure_('stale');
     }
     var now = new Date(), row = all.newsRow[id];
-    writeTime_(db.news, row, 6, now);
-    writeNumber_(db.news, row, 7, item.count + 1);
-    if (variant) {
-      var vr = all.verRow[id][ver];
-      writeTime_(db.edits, vr, 4, now);
-      writeNumber_(db.edits, vr, 5, variant.count + 1);
-    }
-    return { item: readAll_(db).byId[id] };
+    writeBlock_(db.news, row, 6, [DATE_FORMAT, FMT_NUM], [[now, item.count + 1]]);
+    if (variant) writeBlock_(db.edits, all.verRow[id][ver], 4, [DATE_FORMAT, FMT_NUM], [[now, variant.count + 1]]);
+    item.last = now.getTime(); item.count += 1;   // 直接更新手上的資料回傳，不再重讀整份
+    if (variant) { variant.last = now.getTime(); variant.count += 1; }
+    return { item: item };
   });
 }
 
