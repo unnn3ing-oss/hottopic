@@ -83,3 +83,23 @@ test('buildComment', () => {
   assert.equal(lib.buildComment({ id: 'N3', url: 'https://example.com/a', note: 'hi' }), 'hi\nhttps://example.com/a');
   assert.equal(lib.buildComment({ id: 'N3', url: 'https://example.com/a', note: '' }), 'https://example.com/a');
 });
+
+test('guessCategory：TVBS 第一層路徑對應分類；不認識或分類不存在回 null', () => {
+  const cats = ['社會', '生活', '健康', '政治', '國際', '娛樂'];
+  const g = (u, c) => lib.guessCategory(u, c || cats);
+  assert.equal(g('https://news.tvbs.com.tw/health/1358062'), '健康');
+  assert.equal(g('https://news.tvbs.com.tw/local/1'), '社會');
+  assert.equal(g('https://news.tvbs.com.tw/life/1'), '生活');
+  assert.equal(g('https://news.tvbs.com.tw/entertainment/1'), '娛樂');
+  assert.equal(g('https://news.tvbs.com.tw/world/1'), '國際');
+  assert.equal(g('https://news.tvbs.com.tw/politics/1'), '政治');
+  assert.equal(g(' HTTPS://NEWS.TVBS.COM.TW/Health/1?x=1#y'), '健康');
+  assert.equal(g('https://news.tvbs.com.tw:443/health/1'), '健康');
+  assert.equal(g('https://news.tvbs.com.tw/cars/1'), null);
+  assert.equal(g('https://example.com/health/1'), null);
+  assert.equal(g('https://evil-tvbs.com.tw.example.com/health/1'), null);
+  assert.equal(g('https://news.tvbs.com.tw/'), null);
+  assert.equal(g('https://news.tvbs.com.tw/__proto__/1'), null);
+  assert.equal(g('https://news.tvbs.com.tw/health/1', ['社會']), null);
+  assert.equal(g(undefined), null);
+});

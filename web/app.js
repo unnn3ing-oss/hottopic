@@ -9,7 +9,7 @@
     items: [], cats: [], status: 'idle', error: '', cat: '全部', q: '', sort: 'oldest',
     pos: {}, pendingMark: null, markTimer: null, busy: new Set(),
     editing: null, draft: [], removed: [], saving: false, delTimer: null,
-    fetchSeq: 0, lastFetchUrl: null, origTouched: false
+    fetchSeq: 0, lastFetchUrl: null, origTouched: false, catTouched: false
   };
 
   var api = HotNewsApi.createClient({
@@ -463,6 +463,7 @@
     state.fetchSeq++;
     state.lastFetchUrl = null;
     state.origTouched = false;
+    state.catTouched = false;
     state.draft = item && item.titles.length
       ? item.titles.map(function (v) { return { ver: v.ver, t: v.t, orig: v.t, count: v.count }; })
       : [{ ver: null, t: '', count: 0 }];
@@ -501,6 +502,8 @@
     if (dup) { setIdHint('編號 ' + id + ' 已存在。', dup); return; }
     setIdHint(id ? '編號 ' + id : '網址裡找不到數字，將使用流水號作為編號。');
     var url = normalizeUrl(raw);
+    var guess = url && !state.catTouched ? guessCategory(url, allCats()) : null;
+    if (guess) $('fCat').value = guess;
     if (url && url !== state.lastFetchUrl && !state.origTouched && !$('fOrig').value.trim()) autofillTitle(url);
   }
 
@@ -532,6 +535,7 @@
   $('fUrl').addEventListener('change', function () { clearTimeout(urlTimer); checkUrl(); });
   $('fUrl').addEventListener('paste', function () { setTimeout(checkUrl, 0); });
   $('fOrig').addEventListener('input', function () { state.origTouched = true; });
+  $('fCat').addEventListener('change', function () { state.catTouched = true; });
 
   $('cancel').addEventListener('click', function () { if (!state.saving) $('dlg').close(); });
   $('dlg').addEventListener('cancel', function (e) { if (state.saving) e.preventDefault(); });

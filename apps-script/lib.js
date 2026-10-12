@@ -135,12 +135,33 @@ function titleFromHtml(html, suffixes) {
   return null;
 }
 
+/* ---------- 依網址自動選分類（網頁新增新聞時用）---------- */
+// 網址第一層路徑 → 分類名稱；新增網站或分類對應只改這裡
+var CATEGORY_RULES = [
+  { host: /(^|\.)tvbs\.com\.tw$/i, sections: { health: '健康', local: '社會', life: '生活', entertainment: '娛樂', world: '國際', politics: '政治' } }
+];
+
+// 回傳 cats 裡存在的分類名稱，否則 null（不認識的網站、路徑或分類被刪掉都不猜）
+function guessCategory(url, cats) {
+  var m = /^https?:\/\/([^\/?#:]*)(?::\d+)?\/([^\/?#]+)/i.exec(String(url || '').replace(/^\s+/, ''));
+  if (!m) return null;
+  var host = m[1].toLowerCase(), section = m[2].toLowerCase();
+  for (var i = 0; i < CATEGORY_RULES.length; i++) {
+    var r = CATEGORY_RULES[i];
+    if (r.host.test(host) && Object.prototype.hasOwnProperty.call(r.sections, section)) {
+      var name = r.sections[section];
+      return (cats || []).indexOf(name) !== -1 ? name : null;
+    }
+  }
+  return null;
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     COMMENT_BASE_URL: COMMENT_BASE_URL, LIMITS: LIMITS, extractId: extractId, isHttpUrl: isHttpUrl,
     normalizeUrl: normalizeUrl, nextSerialId: nextSerialId, normalizeText: normalizeText,
     normalizeLine: normalizeLine, buildComment: buildComment,
     TITLE_SOURCES: TITLE_SOURCES, SITE_SUFFIXES: SITE_SUFFIXES, HTML_SCAN_LIMIT: HTML_SCAN_LIMIT,
-    cleanTitle: cleanTitle, titleFromHtml: titleFromHtml
+    cleanTitle: cleanTitle, titleFromHtml: titleFromHtml, CATEGORY_RULES: CATEGORY_RULES, guessCategory: guessCategory
   };
 }

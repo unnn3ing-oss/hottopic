@@ -179,3 +179,17 @@ test('重複網址提示並可轉為編輯；連點儲存只送一次', async (t
   await page.waitForSelector('#dlg', { state: 'hidden' });
   assert.equal(api.st.calls.filter((c) => c.action === 'addItem').length, 1);
 });
+
+test('新增：依網址自動選分類；手動改過分類就不再覆蓋', async (t) => {
+  const { page } = await open(t);
+  await connect(page);
+  await page.click('#addBtn');
+  await page.fill('#fUrl', 'https://news.tvbs.com.tw/health/1358062');
+  await page.waitForFunction(() => document.getElementById('fCat').value === '健康');
+  await page.fill('#fUrl', 'https://news.tvbs.com.tw/world/1358063');
+  await page.waitForFunction(() => document.getElementById('fCat').value === '國際');
+  await page.selectOption('#fCat', '娛樂');
+  await page.fill('#fUrl', 'https://news.tvbs.com.tw/health/1358064');
+  await page.waitForFunction(() => document.getElementById('idHint').textContent.includes('1358064'));
+  assert.equal(await page.inputValue('#fCat'), '娛樂');
+});
