@@ -30,7 +30,7 @@ button{font:inherit;color:inherit;cursor:pointer}
 .btn:hover{border-color:var(--accent)}
 .btn.primary{background:var(--accent);color:var(--accent-fg);border-color:var(--accent);font-weight:500}
 .btn.ghost{border-color:transparent;color:var(--muted)}
-.split{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,6fr);min-height:620px}
+.split{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,7fr);min-height:620px}
 @media(max-width:760px){.split{grid-template-columns:1fr}.pane-r{display:none}}
 
 /* ---------- 左：清單 ---------- */
@@ -85,6 +85,22 @@ button{font:inherit;color:inherit;cursor:pointer}
 .dock .grow{flex:1;font-size:12px;color:var(--muted)}
 .kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:0 5px}
 
+
+.car{margin:0 18px;display:flex;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;overscroll-behavior-x:contain;background:var(--bg);border:1px solid var(--line);border-radius:10px;cursor:grab}
+.car::-webkit-scrollbar{display:none}
+.car.dragging{scroll-snap-type:none;cursor:grabbing;user-select:none}
+.slide{flex:0 0 100%;scroll-snap-align:start;scroll-snap-stop:always;min-width:0;padding:14px 16px;display:flex;flex-direction:column;gap:8px}
+.slide .t{font-size:19px;font-weight:700;line-height:1.5;margin:0;overflow-wrap:anywhere}
+.slide .m{font-size:12px;color:var(--muted)}
+.carnav{margin:8px 18px 0;display:flex;align-items:center;gap:10px}
+.arrow{width:32px;height:32px;border-radius:50%;border:1px solid var(--line);background:var(--surface);font-size:18px;line-height:1;display:grid;place-items:center;padding:0}
+.arrow:hover:not([disabled]){border-color:var(--accent);color:var(--accent)}
+.arrow[disabled]{opacity:.35;cursor:not-allowed}
+.dots{display:flex;gap:6px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--line)}
+.dot.on{background:var(--accent)}
+.carnav .cnt{font-size:12px;color:var(--muted)}
+.carnav .sp{flex:1}
 </style>
 </head>
 <body>
@@ -92,7 +108,7 @@ button{font:inherit;color:inherit;cursor:pointer}
 
 <div class="stage">
   <div>
-    <p class="cap">電腦版：左邊清單、右邊工作台，點清單就切換右側，不再開彈窗；手機版為清單全寬，點進去是詳情頁，底部固定「複製標題」「標記已使用」</p>
+    <p class="cap">電腦版：左邊清單、右邊工作台，點清單就切換右側，不再開彈窗；改標沿用現行的左右滑動（含滑鼠拖曳、方向鍵）並新增 ‹ › 按鈕；手機版為清單全寬，點進去是詳情頁，底部固定「複製標題」「標記已使用」</p>
     <div class="app">
       <div class="topbar">
         <h1>熱門新聞庫</h1>
@@ -117,8 +133,9 @@ button{font:inherit;color:inherit;cursor:pointer}
           </div>
           <div class="stack">
             <div>
-              <div class="sec"><span>改標版本（點選＝目前使用的版本）</span><span class="kbd">↑ ↓</span></div>
-              <div class="cards" id="cards" role="radiogroup"></div>
+              <div class="sec"><span>改標版本（左右滑動，或按 ‹ ›）</span><span class="kbd">← →</span></div>
+              <div class="car" id="car" tabindex="0" aria-label="改標版本"></div>
+              <div class="carnav"><button class="arrow" id="prev" aria-label="上一版">‹</button><div class="dots" id="dots"></div><button class="arrow" id="next" aria-label="下一版">›</button><span class="cnt" id="vcnt"></span><span class="sp"></span><button class="copy" data-copy="title">複製這一版</button></div>
             </div>
             <div class="block">
               <div class="hd"><span>小編文</span><button class="copy" data-copy="note">複製</button></div>
@@ -181,13 +198,34 @@ function render(){
   $('pCat').textContent=d.cat;$('pId').textContent=d.id;$('pUsed').textContent='上次使用：'+d.used;
   $('pOrig').textContent=d.o;$('pNote').textContent=d.note;
   $('pUrl').textContent='https://news.tvbs.com.tw/news/'+d.id;
-  $('cards').innerHTML='';
+  var car=$('car');car.innerHTML='';car.className='car';
   d.v.forEach(function(t,i){
-    var c=document.createElement('div');c.className='card';c.setAttribute('role','radio');c.setAttribute('aria-checked',i===sel);
-    c.innerHTML='<span class="radio"></span><div><p class="t">'+t+'</p><div class="m">版本 '+(i+1)+'・'+t.length+' 字</div></div><button class="copy" data-copy="title">複製</button>';
-    c.onclick=function(){sel=i;render()};
-    $('cards').appendChild(c);
+    var c=document.createElement('div');c.className='slide';
+    c.innerHTML='<p class="t">'+t+'</p><div class="m">版本 '+(i+1)+'・'+t.length+' 字</div>';
+    car.appendChild(c);
   });
+  $('dots').innerHTML='';
+  d.v.forEach(function(_,i){var x=document.createElement('span');x.className='dot'+(i===sel?' on':'');$('dots').appendChild(x)});
+  var multi=d.v.length>1;
+  $('prev').hidden=$('next').hidden=$('dots').hidden=!multi;
+  function sync(){
+    var w=car.clientWidth||1;sel=Math.max(0,Math.min(d.v.length-1,Math.round(car.scrollLeft/w)));
+    [].forEach.call($('dots').children,function(x,i){x.classList.toggle('on',i===sel)});
+    $('prev').disabled=sel===0;$('next').disabled=sel===d.v.length-1;
+    $('vcnt').textContent=multi?(sel+1)+' / '+d.v.length:'';
+  }
+  function go(i){car.scrollTo({left:i*car.clientWidth,behavior:'smooth'})}
+  car.onscroll=sync;
+  $('prev').onclick=function(){go(sel-1)};$('next').onclick=function(){go(sel+1)};
+  car.onkeydown=function(e){if(e.key==='ArrowLeft'){go(sel-1);e.preventDefault()}if(e.key==='ArrowRight'){go(sel+1);e.preventDefault()}};
+  if(multi){ /* 滑鼠按住拖曳 */
+    var down=0,x0=0,s0=0;
+    car.onpointerdown=function(e){if(e.pointerType!=='mouse')return;down=1;x0=e.clientX;s0=car.scrollLeft};
+    car.onpointermove=function(e){if(!down)return;if(Math.abs(e.clientX-x0)>4)car.classList.add('dragging');car.scrollLeft=s0-(e.clientX-x0)};
+    var up=function(){if(!down)return;down=0;car.classList.remove('dragging');go(sel)};
+    car.onpointerup=car.onpointercancel=car.onpointerleave=up;
+  }
+  car.scrollLeft=sel*car.clientWidth;sync();
 }
 document.addEventListener('click',function(e){
   var b=e.target.closest('.copy');if(!b)return;e.stopPropagation();
