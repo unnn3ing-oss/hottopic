@@ -69,10 +69,78 @@ function buildComment(item) {
   return note ? note + '\n' + link : link;
 }
 
+/* ---------- 標題抽取（Apps Script 伺服器端用；沒有 DOMParser，改用規則運算式） ---------- */
+var TITLE_SOURCES = ['og:title', 'twitter:title', 'title', 'h1'];
+var SITE_SUFFIXES = [];                 // 已知網站名稱後綴；預設空（規格：不先猜）
+var HTML_SCAN_LIMIT = 300 * 1024;
+var BLOCKED_TITLE_PATTERNS = [/^just a moment/i, /attention required/i, /^access denied/i, /verify you are human/i,
+  /checking your browser/i, /are you a robot/i, /請稍候/];
+
+function escapeRegExp_(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+// 單次 replace 還原實體（&amp;lt; → &lt;，不會二次還原）；非法數字實體移除
+function decodeEntities_(s) {
+  return s.replace(/&(?:#(\d+)|#x([0-9a-f]+)|(amp|lt|gt|quot|apos|nbsp));/gi, function (m, dec, hex, name) {
+    if (name) return { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' }[name.toLowerCase()];
+    var code = dec ? parseInt(dec, 10) : parseInt(hex, 16);
+    if (!isFinite(code) || code < 1 || code > 0x10FFFF || (code >= 0xD800 && code <= 0xDFFF)) return '';
+    return String.fromCodePoint(code);
+  });
+}
+
+// 壓空白、去控制字元與雙向控制字元，並裁掉「分隔符號＋已知網站名稱」的結尾
+function cleanTitle(s, suffixes) {
+  var t = String(s == null ? '' : s).replace(/\s+/g, ' ')
+    .replace(/[\u0000-\u001F\u007F-\u009F​-‏‪-‮⁦-⁩﻿]/g, '')
+    .replace(/^ +| +$/g, '');
+  var list = suffixes || SITE_SUFFIXES;
+  for (var i = 0; i < list.length; i++) {
+    var m = new RegExp('^(.*\\S)\\s*[｜|\\-–—]\\s*' + escapeRegExp_(list[i]) + '$').exec(t);
+    if (m) { t = m[1]; break; }
+  }
+  return t;
+}
+
+function isBlockedTitle_(t) {
+  for (var i = 0; i < BLOCKED_TITLE_PATTERNS.length; i++) if (BLOCKED_TITLE_PATTERNS[i].test(t)) return true;
+  return false;
+}
+
+// 回傳 { title, source } 或 null；遇到防機器人頁面的標題一律回 null
+function titleFromHtml(html, suffixes) {
+  var s = String(html || '').slice(0, HTML_SCAN_LIMIT)
+    .replace(/<!--[\s\S]*?-->/g, '').replace(/<script\b[\s\S]*?<\/script\s*>/gi, '').replace(/<style\b[\s\S]*?<\/style\s*>/gi, '');
+  var end = /<\/head\s*>/i.exec(s);
+  var head = end ? s.slice(0, end.index) : s;
+  var metas = {};
+  var tags = head.match(/<meta\b[^>]*>/gi) || [];
+  for (var i = 0; i < tags.length; i++) {
+    var attrs = {}, re = /([a-z:_-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi, m;
+    while ((m = re.exec(tags[i]))) attrs[m[1].toLowerCase()] = m[2] !== undefined ? m[2] : (m[3] !== undefined ? m[3] : m[4]);
+    var key = String(attrs.property || attrs.name || '').toLowerCase();
+    if (key && attrs.content !== undefined && !(key in metas)) metas[key] = attrs.content;
+  }
+  var tm = /<title\b[^>]*>([\s\S]*?)<\/title\s*>/i.exec(head);
+  var hm = /<h1\b[^>]*>([\s\S]*?)<\/h1\s*>/i.exec(s);
+  var raw = { 'og:title': metas['og:title'], 'twitter:title': metas['twitter:title'],
+    'title': tm && tm[1], 'h1': hm && hm[1].replace(/<[^>]+>/g, '') };
+  for (var j = 0; j < TITLE_SOURCES.length; j++) {
+    var v = raw[TITLE_SOURCES[j]];
+    if (v === undefined || v === null) continue;
+    var t = cleanTitle(decodeEntities_(String(v)), suffixes);
+    if (!t) continue;
+    if (isBlockedTitle_(t)) return null;
+    return { title: t, source: TITLE_SOURCES[j] };
+  }
+  return null;
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     COMMENT_BASE_URL: COMMENT_BASE_URL, LIMITS: LIMITS, extractId: extractId, isHttpUrl: isHttpUrl,
     normalizeUrl: normalizeUrl, nextSerialId: nextSerialId, normalizeText: normalizeText,
-    normalizeLine: normalizeLine, buildComment: buildComment
+    normalizeLine: normalizeLine, buildComment: buildComment,
+    TITLE_SOURCES: TITLE_SOURCES, SITE_SUFFIXES: SITE_SUFFIXES, HTML_SCAN_LIMIT: HTML_SCAN_LIMIT,
+    cleanTitle: cleanTitle, titleFromHtml: titleFromHtml
   };
 }
