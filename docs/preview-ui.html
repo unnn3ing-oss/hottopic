@@ -17,9 +17,8 @@
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 var(--font);padding:16px}
 button{font:inherit;color:inherit;cursor:pointer}
-.banner{max-width:1180px;margin:0 auto 14px;background:var(--warn-bg);color:var(--warn);border-radius:8px;padding:8px 14px;font-size:13px}
-.stage{max-width:1180px;margin:0 auto;display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:20px;align-items:start}
-@media(max-width:980px){.stage{grid-template-columns:1fr}}
+.banner{max-width:1100px;margin:0 auto 14px;background:var(--warn-bg);color:var(--warn);border-radius:8px;padding:8px 14px;font-size:13px}
+.stage{max-width:1100px;margin:0 auto}
 .cap{font-size:12px;color:var(--muted);margin:0 0 6px;letter-spacing:.04em}
 
 /* ---------- App 外框 ---------- */
@@ -86,23 +85,14 @@ button{font:inherit;color:inherit;cursor:pointer}
 .dock .grow{flex:1;font-size:12px;color:var(--muted)}
 .kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:0 5px}
 
-/* ---------- LINE 預覽 ---------- */
-.phone{width:100%;max-width:340px;margin:0 auto;border:1px solid var(--line);border-radius:26px;overflow:hidden;background:var(--chat-bg)}
-.phone .bar2{background:#fff;color:#111;padding:10px 14px;font-size:14px;font-weight:600;display:flex;justify-content:space-between}
-.chat{padding:16px 12px 18px;display:flex;flex-direction:column;gap:6px;min-height:300px}
-.bubble{background:#fff;color:#111;border-radius:4px 16px 16px 16px;padding:10px 12px;max-width:86%;font-size:14px;line-height:1.55;white-space:pre-wrap;word-break:break-all;box-shadow:0 1px 0 rgba(0,0,0,.08)}
-.bubble.url{color:#1a5fb4;text-decoration:underline;font-size:13px}
-.who{font-size:11px;color:#fff;opacity:.9}
-.hintbox{font-size:12px;color:var(--muted);margin:8px 2px 0}
-.mini-note{font-size:12px;color:var(--muted);margin:10px 2px 0}
 </style>
 </head>
 <body>
-<div class="banner"><b>預覽稿（尚未改動正式網站）</b>：我找不到「LINE推播套版產生器」可供參考，下面是依「挑選 → 即時預覽 → 一鍵複製」這類工具的常見操作模式推測出來的版型。確認方向或給我該工具的截圖後再調整，再動正式程式。</div>
+<div class="banner"><b>預覽稿（尚未改動正式網站）</b>：只調整整體介面設計，和 LINE 無關，也沒有 LINE 預覽。我仍看不到你的套版產生器，版型是依常見的「左清單、右工作台」模式推測，確認方向或給截圖後再動正式程式。</div>
 
 <div class="stage">
   <div>
-    <p class="cap">電腦版（左：清單／右：工作台；點清單即切換右側，不再開彈窗）</p>
+    <p class="cap">電腦版：左邊清單、右邊工作台，點清單就切換右側，不再開彈窗；手機版為清單全寬，點進去是詳情頁，底部固定「複製標題」「標記已使用」</p>
     <div class="app">
       <div class="topbar">
         <h1>熱門新聞庫</h1>
@@ -149,19 +139,6 @@ button{font:inherit;color:inherit;cursor:pointer}
     </div>
   </div>
 
-  <div>
-    <p class="cap">LINE 推播即時預覽（右欄可折疊；手機版放在詳情頁下方）</p>
-    <div class="phone">
-      <div class="bar2"><span>‹ TVBS 新聞</span><span>☰</span></div>
-      <div class="chat">
-        <div class="who">TVBS 新聞</div>
-        <div class="bubble" id="lTitle"></div>
-        <div class="bubble url" id="lUrl"></div>
-      </div>
-    </div>
-    <p class="hintbox">切換左側的改標版本，這裡同步顯示推播長相；字數過長時會提示。</p>
-    <p class="mini-note"><b>手機版</b>：清單全寬，點一則 → 詳情全螢幕滑入（同右側工作台），底部固定「複製標題」「標記已使用」兩顆大按鈕，左上角返回。</p>
-  </div>
 </div>
 
 <script>
@@ -211,7 +188,6 @@ function render(){
     c.onclick=function(){sel=i;render()};
     $('cards').appendChild(c);
   });
-  $('lTitle').textContent=d.v[sel];$('lUrl').textContent='https://news.tvbs.com.tw/news/'+d.id;
 }
 document.addEventListener('click',function(e){
   var b=e.target.closest('.copy');if(!b)return;e.stopPropagation();
