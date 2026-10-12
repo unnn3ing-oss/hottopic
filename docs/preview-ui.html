@@ -55,13 +55,15 @@ button{font:inherit;color:inherit;cursor:pointer}
 .vcount{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-radius:999px;padding:0 6px}
 
 /* 右：一張橫式大卡片（外框參考你的截圖） */
-.pane-r{min-width:0;padding:16px;background:var(--bg)}
-.bigcard{background:var(--surface);border:1.5px solid var(--edge);border-radius:22px;box-shadow:0 0 0 4px var(--glow);padding:14px 16px 16px;display:flex;flex-direction:column;gap:14px}
+.pane-r{min-width:0;padding:16px;background:var(--bg);display:flex}
+.bigcard{background:var(--surface);border:1.5px solid var(--edge);border-radius:22px;box-shadow:0 0 0 4px var(--glow);padding:16px 18px 18px;display:flex;flex-direction:column;gap:14px;flex:1;min-width:0}
 .chead{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .chev{width:26px;height:26px;border-radius:50%;background:var(--blue);color:var(--blue-fg);border:0;font-size:13px;display:grid;place-items:center;padding:0}
 .ctitle{font-weight:800;font-size:16px}
 .ctitle small{font-family:var(--mono);font-weight:500;color:var(--muted);margin-left:6px;font-size:13px}
-.cacts{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.cacts{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.grow{flex:1}
+.grow .car{flex:1}
 .pill.copied{background:var(--ok);border-color:var(--ok);color:#fff}
 .x{width:34px;height:34px;border-radius:50%;border:2px solid var(--red);color:var(--red);background:var(--surface);display:grid;place-items:center;font-size:14px;font-weight:800;padding:0}
 .cbody{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:18px;align-items:start}
@@ -76,7 +78,7 @@ button{font:inherit;color:inherit;cursor:pointer}
 .car::-webkit-scrollbar{display:none}
 .car.dragging{scroll-snap-type:none;cursor:grabbing;user-select:none}
 .car:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
-.slide{flex:0 0 100%;scroll-snap-align:start;scroll-snap-stop:always;min-width:0;padding:14px 16px;min-height:150px;display:flex;flex-direction:column;gap:8px;justify-content:space-between}
+.slide{flex:0 0 100%;scroll-snap-align:start;scroll-snap-stop:always;min-width:0;padding:16px 18px;min-height:190px;display:flex;flex-direction:column;gap:8px;justify-content:space-between}
 .slide .t{font-size:20px;font-weight:800;line-height:1.5;margin:0;overflow-wrap:anywhere;white-space:pre-wrap}
 .slide .m{font-size:12px;color:var(--muted)}
 .stepper{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center}
@@ -90,19 +92,19 @@ button{font:inherit;color:inherit;cursor:pointer}
 .hint{font-size:12px;color:var(--muted)}
 
 /* 右欄：小編文、紀錄 */
-.note{white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px;margin:0;min-height:96px}
+.note{white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px;margin:0}
 .note.empty{color:var(--muted)}
-.rec{display:flex;flex-direction:column;gap:2px;font-size:13px;color:var(--muted)}
+.rec{margin-left:auto;font-size:13px;color:var(--muted);text-align:right}
 .rec b{color:var(--ink);font-weight:700}
 .rec .never{color:var(--ok)}
-.orig{font-size:13px;color:var(--muted);display:flex;gap:8px;align-items:flex-start}
+.orig{font-size:13px;color:var(--muted);display:flex;gap:8px;align-items:flex-start;margin-top:-8px}
 .tag{font-size:11px;border:1px solid var(--line);border-radius:999px;padding:0 7px;flex:none;margin-top:3px}
 </style>
 </head>
 <body>
-<div class="banner"><b>預覽稿（尚未改動正式網站）</b>：外框改用你截圖的風格——淺藍發光外框、大圓角、深藍文字、膠囊按鈕、圓形步進鈕；卡片改為橫式，放在右側。我仍看不到你的整個工具，其餘版面是推測的。</div>
+<div class="banner"><b>預覽稿（尚未改動正式網站）</b>：依你的標註調整——使用次數移到卡片右上；原始標題移到新聞編號下方（灰色小字）；小編文改為改標下方的純文字；按鈕移到卡片右下；卡片整體加高。</div>
 <div class="stage">
-  <p class="cap">電腦版：左邊清單，右邊一張橫式大卡片。改標保留換行、可左右滑動，也可按 ‹ ›；「複製留言」＝小編文（第一行）＋原始網址（第二行）。</p>
+  <p class="cap">電腦版：左邊清單，右邊一張大卡片。改標保留換行、可左右滑動，也可按 ‹ ›；「複製留言」＝小編文（第一行）＋原始網址（第二行）。</p>
   <div class="app">
     <div class="topbar">
       <h1>熱門新聞庫</h1>
@@ -126,31 +128,28 @@ button{font:inherit;color:inherit;cursor:pointer}
             <button class="chev" aria-label="收合">⌃</button>
             <span class="ctitle">新聞<small id="pId"></small></span>
             <span class="cat" id="pCat"></span>
-            <div class="cacts">
-              <button class="pill" id="cTitle">複製標題</button>
-              <button class="pill" id="cNote">複製留言</button>
-              <button class="pill solid" id="mark">標記已使用</button>
-              <button class="pill" id="edit">編輯</button>
-            </div>
+            <div class="rec" id="rec"></div>
           </div>
-          <div class="cbody">
-            <div class="field">
-              <span class="lbl">改標<small>左右滑動，或按 ‹ ›</small></span>
-              <div class="car" id="car" tabindex="0" aria-label="改標，可左右滑動或用方向鍵切換"></div>
-              <div class="stepper">
-                <button class="circ" id="prev" aria-label="上一個改標">‹</button>
-                <div class="num"><span class="dots" id="dots"></span><span id="vcnt"></span></div>
-                <button class="circ" id="next" aria-label="下一個改標">›</button>
-              </div>
-              <span class="hint" id="vhint"></span>
+          <div class="orig"><span class="tag">原始</span><span id="pOrig"></span></div>
+          <div class="field grow">
+            <span class="lbl">改標<small>左右滑動，或按 ‹ ›</small></span>
+            <div class="car" id="car" tabindex="0" aria-label="改標，可左右滑動或用方向鍵切換"></div>
+            <div class="stepper">
+              <button class="circ" id="prev" aria-label="上一個改標">‹</button>
+              <div class="num"><span class="dots" id="dots"></span><span id="vcnt"></span></div>
+              <button class="circ" id="next" aria-label="下一個改標">›</button>
             </div>
-            <div class="field">
-              <span class="lbl">小編文</span>
-              <div class="box"><p class="note" id="pNote"></p></div>
-              <span class="lbl" style="margin-top:6px">使用紀錄</span>
-              <div class="rec" id="rec"></div>
-              <div class="orig"><span class="tag">原始</span><span id="pOrig"></span></div>
-            </div>
+            <span class="hint" id="vhint"></span>
+          </div>
+          <div class="field">
+            <span class="lbl">小編文</span>
+            <p class="note" id="pNote"></p>
+          </div>
+          <div class="cacts">
+            <button class="pill" id="cTitle">複製標題</button>
+            <button class="pill" id="cNote">複製留言</button>
+            <button class="pill solid" id="mark">標記已使用</button>
+            <button class="pill" id="edit">編輯</button>
           </div>
         </article>
       </section>
@@ -196,7 +195,7 @@ function render(){
   var d=L[cur]||L[0];if(!d)return;
   $('pCat').textContent=d.cat;$('pId').textContent='#'+d.id;$('pOrig').textContent=d.o;
   $('pNote').textContent=d.note||'（尚無小編文）';$('pNote').className='note'+(d.note?'':' empty');
-  $('rec').innerHTML=d.fresh?'<span><b class="never">從未使用</b> · 使用 0 次</span>':'<span>上次使用 <b>'+d.used+'</b> · 共 2 次</span>';
+  $('rec').innerHTML=d.fresh?'<b class="never">從未使用</b> · 使用 0 次':'上次使用 <b>'+d.used+'</b> · 共 2 次';
   var car=$('car');car.innerHTML='';car.className='car';
   d.v.forEach(function(t,i){
     var c=document.createElement('div');c.className='slide';
