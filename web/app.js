@@ -504,14 +504,23 @@
     if (url && url !== state.lastFetchUrl && !state.origTouched && !$('fOrig').value.trim()) autofillTitle(url);
   }
 
+  function titleFailText(reason) {
+    var r = String(reason || '');
+    if (/^http_(401|403|429)$/.test(r)) return '對方網站擋下自動抓取（' + r.slice(5) + '），請手動輸入';
+    if (/^http_/.test(r)) return '對方網站回應異常（' + r.slice(5) + '），請手動輸入';
+    if (r === 'timeout') return '抓取逾時，請手動輸入或稍後再貼一次網址';
+    if (r === 'no_title') return '頁面抓到了但找不到標題，請手動輸入';
+    return '抓不到標題，請手動輸入';
+  }
+
   function autofillTitle(url) {
     var seq = ++state.fetchSeq;
     state.lastFetchUrl = url;
     $('titleHint').textContent = '正在抓取標題…';
-    callApi('fetchTitle', { url: url }).then(function (data) { return data && data.title ? data : null; }, function () { return null; })
+    callApi('fetchTitle', { url: url }).then(function (data) { return data || { title: null, reason: 'fetch_error' }; }, function (e) { return { title: null, reason: e && e.code === 'timeout' ? 'timeout' : 'fetch_error' }; })
       .then(function (data) {
         if (seq !== state.fetchSeq) return;                    // 晚到的結果丟棄
-        if (!data) { $('titleHint').textContent = '抓不到標題，請手動輸入'; return; }
+        if (!data.title) { $('titleHint').textContent = titleFailText(data.reason); return; }
         if (state.origTouched || $('fOrig').value.trim()) { $('titleHint').textContent = ''; return; }
         $('fOrig').value = data.title;
         $('titleHint').textContent = '來自 ' + (data.source || '網頁');

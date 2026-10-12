@@ -309,24 +309,26 @@ function markUsed_(args) {
   });
 }
 
+// 回 {title, source, reason}；reason 只在失敗時有值：http_<狀態碼>、no_title、fetch_error（只給網頁顯示原因，不含例外內容）
+var FETCH_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+  'Accept': 'text/html,application/xhtml+xml',
+  'Accept-Language': 'zh-TW,zh;q=0.9'
+};
 function fetchTitle_(args) {
   var url = normalizeUrl(reqString_(args.url));
   if (!url) failure_('bad_request');
-  var empty = { title: null, source: null };
+  var res;
   try {
-    var res = UrlFetchApp.fetch(url, {
-      muteHttpExceptions: true, followRedirects: true, timeoutSeconds: 8,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
-        'Accept-Language': 'zh-TW,zh;q=0.9'
-      }
-    });
-    if (res.getResponseCode() !== 200) return empty;
-    var found = titleFromHtml(res.getContentText('UTF-8'));
-    return found ? { title: found.title, source: found.source } : empty;
+    res = UrlFetchApp.fetch(url, { muteHttpExceptions: true, followRedirects: true, headers: FETCH_HEADERS });
   } catch (e) {
-    return empty;   // 失敗不阻擋儲存，網頁會提示手動輸入
+    return { title: null, source: null, reason: 'fetch_error' };   // 失敗不阻擋儲存，網頁會提示手動輸入
   }
+  var code = res.getResponseCode();
+  if (code !== 200) return { title: null, source: null, reason: 'http_' + code };
+  var found = null;
+  try { found = titleFromHtml(res.getContentText('UTF-8')); } catch (e) { /* 解析失敗視為抓不到 */ }
+  return found ? { title: found.title, source: found.source, reason: null } : { title: null, source: null, reason: 'no_title' };
 }
 
 var ACTIONS = {
@@ -345,4 +347,15 @@ function setup() {
   UrlFetchApp.fetch('https://example.com', { muteHttpExceptions: true });   // 觸發外部請求授權
   LockService.getScriptLock();
   Logger.log('完成：分頁已就緒（' + SHEET.news + '、' + SHEET.edits + '、' + SHEET.cats + '）。下一步：部署 → 新增部署作業 → 網頁應用程式。');
+}
+
+
+/* 編輯器內手動執行：改下面的網址，看 Apps Script 對該網站實際抓到什麼（狀態碼、長度、前 300 字、解析結果） */
+function debugFetchTitle() {
+  var url = 'https://news.tvbs.com.tw/';   // ← 換成要測的新聞網址
+  var res = UrlFetchApp.fetch(url, { muteHttpExceptions: true, followRedirects: true, headers: FETCH_HEADERS });
+  var text = res.getContentText('UTF-8');
+  Logger.log('狀態碼：' + res.getResponseCode() + '，長度：' + text.length);
+  Logger.log('開頭：' + text.slice(0, 300).replace(/\s+/g, ' '));
+  Logger.log('解析結果：' + JSON.stringify(titleFromHtml(text)));
 }

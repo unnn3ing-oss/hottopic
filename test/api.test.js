@@ -67,12 +67,12 @@ test('讀不到回應 → unreachable/unknown，且不重試（含寫入）', as
   }
 });
 
-test('逾時：fetchTitle 8000ms、其他 30000ms，逾時即 abort', async () => {
+test('逾時：fetchTitle 20000ms、其他 30000ms，逾時即 abort', async () => {
   const s = setup(() => new Promise(() => {}));
   s.client.saveConfig({ url: URL_OK, token: TOKEN, remember: false });
   const p1 = s.client.call('fetchTitle', {});
   const p2 = s.client.call('listItems', {});
-  assert.deepEqual(s.timers.map((t) => t.ms), [8000, 30000]);
+  assert.deepEqual(s.timers.map((t) => t.ms), [20000, 30000]);
   s.timers[0].fn();
   await assert.rejects(p1, { code: 'timeout', unknown: true });
   assert.equal(s.aborts[0].aborted, true);

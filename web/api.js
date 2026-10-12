@@ -56,7 +56,7 @@ var HotNewsApi = (function () {
     function clearConfig() { memToken = null; memUrl = null; remove(KEYS.url); remove(KEYS.token); remove(KEYS.remember); }
 
     function request(url, token, action, args) {
-      var ms = action === 'fetchTitle' ? 8000 : 30000;
+      var ms = action === 'fetchTitle' ? 20000 : 30000;
       var ctl = new deps.AbortController();
       var timer;
       var timeout = new Promise(function (_, reject) {
