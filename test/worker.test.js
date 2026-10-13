@@ -84,16 +84,26 @@ test('CORS：允許的 Origin 有標頭，其他沒有；OPTIONS 回 204', async
 });
 
 test('Secret 缺少或過短 → server_error，絕不放行', async () => {
-  for (const [key, short] of [['APP_PASSWORD', 'p'.repeat(7)], ['SESSION_SECRET', 's'.repeat(31)]]) {
-    for (const val of [undefined, '', short]) {
-      const env = Object.assign({}, ENV, { [key]: val });
-      const r = await parse(await login(ENV.APP_PASSWORD, { env }));
-      assert.equal(r.ok, false);
-      assert.equal(r.code, 'server_error', key + '=' + String(val));
-    }
+  const bad = [['APP_PASSWORD', undefined], ['APP_PASSWORD', ''], ['APP_PASSWORD', 'p'.repeat(7)],
+    ['SESSION_SECRET', 's'.repeat(31)], ['API_TOKEN', undefined], ['API_TOKEN', 'k'.repeat(31)]];
+  for (const [key, val] of bad) {
+    const env = Object.assign({}, ENV, { [key]: val });
+    if (key === 'API_TOKEN') delete env.SESSION_SECRET;   // 簽章金鑰會退回 API_TOKEN，兩者都壞才該擋
+    const r = await parse(await login(ENV.APP_PASSWORD, { env }));
+    assert.equal(r.ok, false);
+    assert.equal(r.code, 'server_error', key + '=' + String(val));
   }
-  const noOrigin = await parse(await login(ENV.APP_PASSWORD, { env: Object.assign({}, ENV, { ALLOWED_ORIGIN: undefined }) }));
-  assert.equal(noOrigin.code, 'server_error');
+});
+
+test('沒設 SESSION_SECRET 與 ALLOWED_ORIGIN 也能運作（簽章用 API_TOKEN，Origin 用預設）', async () => {
+  const { verifySession } = await load();
+  const env = { APP_PASSWORD: ENV.APP_PASSWORD, API_TOKEN: ENV.API_TOKEN, APPS_SCRIPT_URL: ENV.APPS_SCRIPT_URL, FAIL_DELAY_MS: '0' };
+  const res = await login(ENV.APP_PASSWORD, { env });
+  assert.equal(res.headers.get('access-control-allow-origin'), ORIGIN);
+  const body = await parse(res);
+  assert.equal(body.ok, true);
+  assert.equal(await verifySession(ENV.API_TOKEN, body.data.session, Math.floor(Date.now() / 1000)), true);
+  assert.equal((await login(ENV.APP_PASSWORD, { env, origin: 'https://evil.test' })).headers.get('access-control-allow-origin'), null);
 });
 
 test('APP_PASSWORD 剛好 8 字元可以登入；SESSION_SECRET 仍要 32', async () => {

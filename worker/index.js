@@ -1,14 +1,15 @@
 /* Cloudflare Worker：登入驗證閘道。
  * POST /login {password}            → 通過後簽發 12 小時憑證
  * POST /api   {session, action, args} → 驗憑證後加上 API_TOKEN 轉送 Apps Script
- * Secrets：APP_PASSWORD（至少 8 字元）、SESSION_SECRET、API_TOKEN（各至少 32 字元）、APPS_SCRIPT_URL
- * Variable：ALLOWED_ORIGIN（例如 https://unnn3ing-oss.github.io）
+ * 必要 Secrets：APP_PASSWORD（至少 8 字元）、API_TOKEN（至少 32 字元）、APPS_SCRIPT_URL
+ * 選用：SESSION_SECRET（憑證簽章金鑰，沒設就用 API_TOKEN；至少 32 字元）、ALLOWED_ORIGIN（預設 https://unnn3ing-oss.github.io）
  * 選用：FAIL_DELAY_MS（登入失敗延遲毫秒，預設 1000）、LOGIN_LIMITER（Rate Limiting 綁定）
  * 回應 HTTP 一律 200（OPTIONS 為 204），格式 {ok:true,data} 或 {ok:false,code,error}。 */
 
 export const SESSION_TTL_SEC = 43200;
 const MAX_BODY = 65536;
 const MIN_SECRET = 32;
+const DEFAULT_ORIGIN = 'https://unnn3ing-oss.github.io';
 const MIN_PASSWORD = 8;   // 登入密碼是給人輸入的，下限較低；機器用的 Secret 仍要 32
 const UPSTREAM_TIMEOUT_MS = 25000;
 const enc = new TextEncoder();
@@ -71,10 +72,12 @@ async function passwordMatches(input, expected) {
 }
 
 /* ---------- 回應 ---------- */
+const allowedOrigin = (env) => env.ALLOWED_ORIGIN || DEFAULT_ORIGIN;
+const signingKey = (env) => env.SESSION_SECRET || env.API_TOKEN;
 function corsHeaders(request, env) {
   const h = { 'Vary': 'Origin' };
   const origin = request.headers.get('origin');
-  if (origin && env.ALLOWED_ORIGIN && origin === env.ALLOWED_ORIGIN) h['Access-Control-Allow-Origin'] = origin;
+  if (origin && origin === allowedOrigin(env)) h['Access-Control-Allow-Origin'] = origin;
   return h;
 }
 function reply(request, env, body, status) {
@@ -96,7 +99,7 @@ async function readJson(request) {
 
 /* ---------- 端點 ---------- */
 async function handleLogin(request, env) {
-  if (!longEnough(env.APP_PASSWORD, MIN_PASSWORD) || !longEnough(env.SESSION_SECRET) || !env.ALLOWED_ORIGIN) {
+  if (!longEnough(env.APP_PASSWORD, MIN_PASSWORD) || !longEnough(signingKey(env))) {
     return fail(request, env, 'server_error', MESSAGES.not_configured);
   }
   if (env.LOGIN_LIMITER && typeof env.LOGIN_LIMITER.limit === 'function') {
@@ -112,16 +115,16 @@ async function handleLogin(request, env) {
     return fail(request, env, 'unauthorized');
   }
   const exp = Math.floor(Date.now() / 1000) + SESSION_TTL_SEC;
-  return reply(request, env, { ok: true, data: { session: await signSession(env.SESSION_SECRET, exp), exp, ttl: SESSION_TTL_SEC } });
+  return reply(request, env, { ok: true, data: { session: await signSession(signingKey(env), exp), exp, ttl: SESSION_TTL_SEC } });
 }
 
 async function handleApi(request, env) {
-  if (!longEnough(env.SESSION_SECRET) || !longEnough(env.API_TOKEN) || !env.APPS_SCRIPT_URL || !env.ALLOWED_ORIGIN) {
+  if (!longEnough(signingKey(env)) || !longEnough(env.API_TOKEN) || !env.APPS_SCRIPT_URL) {
     return fail(request, env, 'server_error', MESSAGES.not_configured);
   }
   const body = await readJson(request);
   if (!body) return fail(request, env, 'bad_request');
-  if (!(await verifySession(env.SESSION_SECRET, body.session, Math.floor(Date.now() / 1000)))) return fail(request, env, 'unauthorized');
+  if (!(await verifySession(signingKey(env), body.session, Math.floor(Date.now() / 1000)))) return fail(request, env, 'unauthorized');
   const args = body.args === undefined ? {} : body.args;
   if (typeof body.action !== 'string' || !body.action || !args || typeof args !== 'object' || Array.isArray(args)) {
     return fail(request, env, 'bad_request');

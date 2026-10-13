@@ -57,11 +57,11 @@ Cloudflare Worker（worker/index.js）── 驗憑證，加上 API_TOKEN ──
 
    | 名稱 | 類型 | 內容 |
    |---|---|---|
-   | `APP_PASSWORD` | Secret | 網頁登入密碼（至少 8 字元，自己好記即可；越長越安全） |
-   | `SESSION_SECRET` | Secret | 簽憑證用的另一組隨機字串（至少 32 字元，不要與密碼相同） |
-   | `API_TOKEN` | Secret | 與 Apps Script 指令碼屬性 `API_TOKEN` **完全相同** |
-   | `APPS_SCRIPT_URL` | Secret | Apps Script 的 `/exec` 網址 |
-   | `ALLOWED_ORIGIN` | Variable | `https://unnn3ing-oss.github.io`（結尾不要斜線） |
+   | `APP_PASSWORD` | Secret | 網頁登入密碼（至少 8 字元，**自己決定**，越長越安全） |
+   | `API_TOKEN` | Secret | 抄 Apps Script 指令碼屬性裡現有的 `API_TOKEN`，**完全相同** |
+   | `APPS_SCRIPT_URL` | Secret | 抄 Apps Script 現有的 `/exec` 網址 |
+
+   只有這 3 個，其中只有密碼需要你想。`SESSION_SECRET`（憑證簽章金鑰，預設用 `API_TOKEN`）與 `ALLOWED_ORIGIN`（預設 `https://unnn3ing-oss.github.io`）都是選用，不用設。
 
 3. 取得 Worker 網址（`https://〈名稱〉.〈帳號〉.workers.dev`），用 `curl` 驗證（請把 `W`、密碼換成自己的）：
 
@@ -78,7 +78,7 @@ Cloudflare Worker（worker/index.js）── 驗憑證，加上 API_TOKEN ──
 
 **防暴力猜密碼**：Worker 登入失敗會固定延遲約 1 秒再回應，但這**擋不了同時多線程猜**；登入密碼只要求 8 字元，所以**強烈建議啟用下面的限流**，並把密碼設成不易猜的組合（英數混合、避開生日與帳號名）。Worker 也支援選用的 Rate Limiting 綁定（綁定名稱 `LOGIN_LIMITER`，有綁定才會用，超過頻率回 `rate_limited`）。**這個綁定在免費方案是否可用、能不能在儀表板設定，我在撰寫時無法連上 Cloudflare 文件查證**；請到 Cloudflare 文件的「Workers → Bindings → Rate Limiting」自行確認，需要時用 `wrangler` 設定。沒有綁定時，只靠上述延遲與密碼強度，8 字元的密碼有被線上暴力猜中的風險；也可以改用較長的密碼來補強。
 
-產生 48 字元隨機字串（在任一網頁的 Console 貼上，會自動複製；`SESSION_SECRET` 要產生一組；`API_TOKEN` 若沿用 Apps Script 現有值則不必；`APP_PASSWORD` 自己決定即可）：
+需要產生 48 字元隨機字串時（例如想換一組新的 `API_TOKEN`；在任一網頁的 Console 貼上，會自動複製）：
 
 ```js
 copy(Array.from(crypto.getRandomValues(new Uint8Array(24)), b => b.toString(16).padStart(2, '0')).join(''))
@@ -88,7 +88,7 @@ copy(Array.from(crypto.getRandomValues(new Uint8Array(24)), b => b.toString(16).
 
 - 第一次開啟會跳出「設定」：貼上 Worker 網址與登入密碼，按「登入」。登入後 **12 小時內**不必重輸；到期後下一個操作會跳回登入畫面。
 - 憑證預設只留在記憶體，重新整理要重新登入；勾「在這台裝置記住登入」才會把**憑證**（不是密碼）存進瀏覽器，到期時間不變。
-- **換登入密碼**：只改 Worker 的 Secret `APP_PASSWORD`（不用重新部署程式）。已登入的人到期前不受影響；要讓所有人立刻登出，另外更換 `SESSION_SECRET`。
+- **換登入密碼**：只改 Worker 的 Secret `APP_PASSWORD`（不用重新部署程式）。已登入的人到期前不受影響；要讓所有人立刻登出，更換 `API_TOKEN`（兩邊都要改）或另外設定 `SESSION_SECRET` 再更換它。
 - **換 `API_TOKEN`**：Apps Script 的指令碼屬性與 Worker 的 Secret 兩邊都要改成同一個值。
 - 程式（`Code.gs`）改版後，要「管理部署作業 → 編輯 → 新版本」才會生效，網址不變。`worker/index.js` 改版後，重新貼上並 Deploy。
 
@@ -109,6 +109,6 @@ npm run build       # 輸出 _site/
 
 - repo 與網頁是公開的，**不放任何機密**（密碼、Worker 與 Apps Script 的真實網址、試算表 ID）；測試內有機密掃描。
 - 關卡有兩道：Worker 的登入密碼（至少 8 字元，放在 POST 內文，不放網址），以及 Apps Script 的 `API_TOKEN`（只有 Worker 知道）。網頁本身仍是不含資料的公開空殼。
-- 登入憑證是有效 12 小時的簽章字串；「記住登入」會存在瀏覽器 localStorage，同一個 `github.io` 網域下的其他網頁讀得到，所以預設關閉。建議用沒有可疑外掛的瀏覽器個人檔案。懷疑外流時，更換 `SESSION_SECRET` 即可讓所有憑證失效。
+- 登入憑證是有效 12 小時的簽章字串；「記住登入」會存在瀏覽器 localStorage，同一個 `github.io` 網域下的其他網頁讀得到，所以預設關閉。建議用沒有可疑外掛的瀏覽器個人檔案。懷疑外流時，更換簽章金鑰（`SESSION_SECRET`，沒設則為 `API_TOKEN`）即可讓所有憑證失效。
 - Worker 只允許 `ALLOWED_ORIGIN` 這一個網站讀取回應；沒設定好 Secrets 時一律拒絕，不會放行。
 - 網頁用嚴格 CSP（只允許自己的檔案與 `*.workers.dev`），所有文字以 `textContent` 輸出。
