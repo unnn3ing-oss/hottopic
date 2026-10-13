@@ -1,11 +1,10 @@
-// 記憶體版假 API：實作與 Code.gs 相同的線路協定（只供前端 e2e 使用）。
-// 後端完成後，e2e 可改為轉給真正的 Code.gs（loadBackend）。
-const TOKEN = 't'.repeat(48);
+// 記憶體版假 Worker＋API：模擬 Cloudflare Worker 的 /login、/api 與 Code.gs 的動作（只供前端 e2e 使用）。
+const PASSWORD = 'p'.repeat(48);
 const DAY = 864e5;
 
 function createFakeApi(opts = {}) {
   const st = { now: opts.now || Date.UTC(2026, 9, 12, 4, 0, 0), items: [], cats: ['社會', '生活', '健康', '政治', '國際', '娛樂'],
-    token: TOKEN, titleResult: { title: '自動帶入的原始標題', source: 'og:title' }, calls: [] };
+    sessions: new Set(), seq: 0, titleResult: { title: '自動帶入的原始標題', source: 'og:title' }, calls: [] };
   const ok = (data) => ({ ok: true, data });
   const bad = (code, extra) => Object.assign({ ok: false, code, error: code }, extra);
   const clone = (x) => JSON.parse(JSON.stringify(x));
@@ -56,15 +55,24 @@ function createFakeApi(opts = {}) {
     }
   };
 
-  function raw(body) {
+  function handle(path, body) {
     let req;
     try { req = JSON.parse(body); } catch (e) { return JSON.stringify(bad('bad_request')); }
-    if (!req || typeof req.token !== 'string' || req.token !== st.token) return JSON.stringify(bad('unauthorized'));
+    if (!req || typeof req !== 'object') return JSON.stringify(bad('bad_request'));
+    if (path === '/login') {
+      if (req.password !== PASSWORD) return JSON.stringify(bad('unauthorized'));
+      const session = 'fake-session-' + (++st.seq);
+      st.sessions.add(session);
+      return JSON.stringify(ok({ session, exp: Math.floor(Date.now() / 1000) + 43200 }));
+    }
+    if (path !== '/api') return JSON.stringify(bad('bad_request'));
+    if (typeof req.session !== 'string' || !st.sessions.has(req.session)) return JSON.stringify(bad('unauthorized'));
     st.calls.push({ action: req.action, args: req.args });
     if (!Object.prototype.hasOwnProperty.call(actions, req.action)) return JSON.stringify(bad('bad_request'));
     return JSON.stringify(actions[req.action](req.args || {}));
   }
-  return { st, raw, seed, TOKEN, DAY };
+  const expireSessions = () => st.sessions.clear();
+  return { st, handle, seed, expireSessions, PASSWORD, DAY };
 }
 
 function seedSample(api) {
@@ -81,4 +89,4 @@ function seedSample(api) {
     orig: '捷運末班車延後營運 跨年夜加開班次時間一次看', titles: [], note: '' });
 }
 
-module.exports = { createFakeApi, seedSample, TOKEN };
+module.exports = { createFakeApi, seedSample, PASSWORD };
