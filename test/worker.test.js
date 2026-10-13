@@ -84,8 +84,8 @@ test('CORS：允許的 Origin 有標頭，其他沒有；OPTIONS 回 204', async
 });
 
 test('Secret 缺少或過短 → server_error，絕不放行', async () => {
-  for (const key of ['APP_PASSWORD', 'SESSION_SECRET']) {
-    for (const val of [undefined, '', 'p'.repeat(31)]) {
+  for (const [key, short] of [['APP_PASSWORD', 'p'.repeat(7)], ['SESSION_SECRET', 's'.repeat(31)]]) {
+    for (const val of [undefined, '', short]) {
       const env = Object.assign({}, ENV, { [key]: val });
       const r = await parse(await login(ENV.APP_PASSWORD, { env }));
       assert.equal(r.ok, false);
@@ -94,6 +94,12 @@ test('Secret 缺少或過短 → server_error，絕不放行', async () => {
   }
   const noOrigin = await parse(await login(ENV.APP_PASSWORD, { env: Object.assign({}, ENV, { ALLOWED_ORIGIN: undefined }) }));
   assert.equal(noOrigin.code, 'server_error');
+});
+
+test('APP_PASSWORD 剛好 8 字元可以登入；SESSION_SECRET 仍要 32', async () => {
+  const env = Object.assign({}, ENV, { APP_PASSWORD: 'abcd1234' });
+  assert.equal((await parse(await login('abcd1234', { env }))).ok, true);
+  assert.equal((await parse(await login('abcd123', { env }))).code, 'unauthorized');
 });
 
 test('body 超過 64KB、未知路徑、GET → bad_request', async () => {

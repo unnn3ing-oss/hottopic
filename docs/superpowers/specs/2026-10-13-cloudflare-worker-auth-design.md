@@ -69,7 +69,7 @@ Cloudflare Worker ── 驗憑證 ──▶ Apps Script /exec  {token:API_TOKEN
 - 簽章用 Web Crypto `HMAC-SHA256`，金鑰為 `SESSION_SECRET`；驗證用 `crypto.subtle.verify`（定時比較）。
 - 驗證失敗、格式不對、已過期，一律回 `unauthorized`。
 - 更換 `SESSION_SECRET` 會使所有已發出的憑證立即失效（用於懷疑外流時）。
-- `APP_PASSWORD`、`SESSION_SECRET` 要求至少 32 字元；缺少或過短時，`/login`、`/api` 一律回 `server_error`（訊息：Worker 尚未設定完成），不降級放行。
+- `SESSION_SECRET`、`API_TOKEN` 要求至少 32 字元；`APP_PASSWORD` 因為是給人輸入的，要求至少 8 字元（2026-10-13 依使用者決定放寬）；缺少或過短時，`/login`、`/api` 一律回 `server_error`（訊息：Worker 尚未設定完成），不降級放行。
 
 ### 5.4 錯誤對應
 
@@ -87,7 +87,7 @@ Cloudflare Worker ── 驗憑證 ──▶ Apps Script /exec  {token:API_TOKEN
 
 - 目標：限制 `/login` 的失敗頻率。**實作前先查證**：Workers 的 Rate Limiting 綁定在使用者的方案上是否可用。
   - 可用 → 以請求來源 IP 為鍵，限制每分鐘登入次數，超過回 `rate_limited`。
-  - 不可用 → 退而求其次：登入失敗時固定延遲約 1 秒再回應，並在 README 寫明殘餘風險；要求 `APP_PASSWORD` 至少 32 字元（與現有密碼規格一致），使線上猜測在實務上不可行。
+  - 不可用 → 退而求其次：登入失敗時固定延遲約 1 秒再回應，並在 README 寫明殘餘風險；`APP_PASSWORD` 經使用者決定放寬為至少 8 字元，因此線上猜測不再「實務上不可行」，殘餘風險在 README 明示，並建議啟用限流。
 - 不記錄密碼、憑證或 Secret 到日誌。
 
 ## 6. 前端

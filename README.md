@@ -57,7 +57,7 @@ Cloudflare Worker（worker/index.js）── 驗憑證，加上 API_TOKEN ──
 
    | 名稱 | 類型 | 內容 |
    |---|---|---|
-   | `APP_PASSWORD` | Secret | 網頁登入密碼（至少 32 字元，產生方式見下） |
+   | `APP_PASSWORD` | Secret | 網頁登入密碼（至少 8 字元，自己好記即可；越長越安全） |
    | `SESSION_SECRET` | Secret | 簽憑證用的另一組隨機字串（至少 32 字元，不要與密碼相同） |
    | `API_TOKEN` | Secret | 與 Apps Script 指令碼屬性 `API_TOKEN` **完全相同** |
    | `APPS_SCRIPT_URL` | Secret | Apps Script 的 `/exec` 網址 |
@@ -76,9 +76,9 @@ Cloudflare Worker（worker/index.js）── 驗憑證，加上 API_TOKEN ──
    `/api` 回 `server_error` 且訊息是「Worker 與後端的密碼設定不一致」，代表 Worker 的 `API_TOKEN` 與 Apps Script 的不同。
 4. 驗證通過後，才把網頁的 PR 併入 `main`（併入後網站就改成新登入方式）；開網頁，在設定貼上 Worker 網址與登入密碼，按「登入」。
 
-**防暴力猜密碼**：Worker 登入失敗會固定延遲約 1 秒再回應，密碼又要求至少 32 字元。Worker 也支援選用的 Rate Limiting 綁定（綁定名稱 `LOGIN_LIMITER`，有綁定才會用，超過頻率回 `rate_limited`）。**這個綁定在免費方案是否可用、能不能在儀表板設定，我在撰寫時無法連上 Cloudflare 文件查證**；請到 Cloudflare 文件的「Workers → Bindings → Rate Limiting」自行確認，需要時用 `wrangler` 設定。沒有綁定時，只靠上述延遲與密碼長度。
+**防暴力猜密碼**：Worker 登入失敗會固定延遲約 1 秒再回應，但這**擋不了同時多線程猜**；登入密碼只要求 8 字元，所以**強烈建議啟用下面的限流**，並把密碼設成不易猜的組合（英數混合、避開生日與帳號名）。Worker 也支援選用的 Rate Limiting 綁定（綁定名稱 `LOGIN_LIMITER`，有綁定才會用，超過頻率回 `rate_limited`）。**這個綁定在免費方案是否可用、能不能在儀表板設定，我在撰寫時無法連上 Cloudflare 文件查證**；請到 Cloudflare 文件的「Workers → Bindings → Rate Limiting」自行確認，需要時用 `wrangler` 設定。沒有綁定時，只靠上述延遲與密碼強度，8 字元的密碼有被線上暴力猜中的風險；也可以改用較長的密碼來補強。
 
-產生 48 字元隨機密碼（在任一網頁的 Console 貼上，會自動複製；`APP_PASSWORD`、`SESSION_SECRET`、`API_TOKEN` 各產生一組）：
+產生 48 字元隨機字串（在任一網頁的 Console 貼上，會自動複製；`SESSION_SECRET` 要產生一組；`API_TOKEN` 若沿用 Apps Script 現有值則不必；`APP_PASSWORD` 自己決定即可）：
 
 ```js
 copy(Array.from(crypto.getRandomValues(new Uint8Array(24)), b => b.toString(16).padStart(2, '0')).join(''))
@@ -108,7 +108,7 @@ npm run build       # 輸出 _site/
 ## 安全注意事項
 
 - repo 與網頁是公開的，**不放任何機密**（密碼、Worker 與 Apps Script 的真實網址、試算表 ID）；測試內有機密掃描。
-- 關卡有兩道：Worker 的登入密碼（至少 32 字元的隨機字串，放在 POST 內文，不放網址），以及 Apps Script 的 `API_TOKEN`（只有 Worker 知道）。網頁本身仍是不含資料的公開空殼。
+- 關卡有兩道：Worker 的登入密碼（至少 8 字元，放在 POST 內文，不放網址），以及 Apps Script 的 `API_TOKEN`（只有 Worker 知道）。網頁本身仍是不含資料的公開空殼。
 - 登入憑證是有效 12 小時的簽章字串；「記住登入」會存在瀏覽器 localStorage，同一個 `github.io` 網域下的其他網頁讀得到，所以預設關閉。建議用沒有可疑外掛的瀏覽器個人檔案。懷疑外流時，更換 `SESSION_SECRET` 即可讓所有憑證失效。
 - Worker 只允許 `ALLOWED_ORIGIN` 這一個網站讀取回應；沒設定好 Secrets 時一律拒絕，不會放行。
 - 網頁用嚴格 CSP（只允許自己的檔案與 `*.workers.dev`），所有文字以 `textContent` 輸出。

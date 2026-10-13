@@ -1,7 +1,7 @@
 /* Cloudflare Worker：登入驗證閘道。
  * POST /login {password}            → 通過後簽發 12 小時憑證
  * POST /api   {session, action, args} → 驗憑證後加上 API_TOKEN 轉送 Apps Script
- * Secrets：APP_PASSWORD、SESSION_SECRET、API_TOKEN、APPS_SCRIPT_URL（各至少 32 字元，網址除外）
+ * Secrets：APP_PASSWORD（至少 8 字元）、SESSION_SECRET、API_TOKEN（各至少 32 字元）、APPS_SCRIPT_URL
  * Variable：ALLOWED_ORIGIN（例如 https://unnn3ing-oss.github.io）
  * 選用：FAIL_DELAY_MS（登入失敗延遲毫秒，預設 1000）、LOGIN_LIMITER（Rate Limiting 綁定）
  * 回應 HTTP 一律 200（OPTIONS 為 204），格式 {ok:true,data} 或 {ok:false,code,error}。 */
@@ -9,6 +9,7 @@
 export const SESSION_TTL_SEC = 43200;
 const MAX_BODY = 65536;
 const MIN_SECRET = 32;
+const MIN_PASSWORD = 8;   // 登入密碼是給人輸入的，下限較低；機器用的 Secret 仍要 32
 const UPSTREAM_TIMEOUT_MS = 25000;
 const enc = new TextEncoder();
 
@@ -82,7 +83,7 @@ function reply(request, env, body, status) {
 }
 const fail = (request, env, code, error) =>
   reply(request, env, { ok: false, code, error: error || MESSAGES[code] || MESSAGES.bad_request });
-const longEnough = (v) => typeof v === 'string' && v.length >= MIN_SECRET;
+const longEnough = (v, min = MIN_SECRET) => typeof v === 'string' && v.length >= min;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function readJson(request) {
@@ -95,7 +96,7 @@ async function readJson(request) {
 
 /* ---------- 端點 ---------- */
 async function handleLogin(request, env) {
-  if (!longEnough(env.APP_PASSWORD) || !longEnough(env.SESSION_SECRET) || !env.ALLOWED_ORIGIN) {
+  if (!longEnough(env.APP_PASSWORD, MIN_PASSWORD) || !longEnough(env.SESSION_SECRET) || !env.ALLOWED_ORIGIN) {
     return fail(request, env, 'server_error', MESSAGES.not_configured);
   }
   if (env.LOGIN_LIMITER && typeof env.LOGIN_LIMITER.limit === 'function') {
