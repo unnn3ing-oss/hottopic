@@ -128,3 +128,101 @@ test('/login 回應文字不含任何 Secret 值', async () => {
     for (const s of SECRETS) assert.equal(body.includes(s), false);
   }
 });
+
+/* ---------- /api ---------- */
+function upstream(t, impl) {
+  const real = globalThis.fetch, calls = [];
+  globalThis.fetch = async (url, init) => { calls.push({ url, init }); return impl(url, init); };
+  t.after(() => { globalThis.fetch = real; });
+  return calls;
+}
+const reply200 = (s) => new Response(s, { status: 200 });
+async function goodSession() {
+  const { signSession } = await load();
+  return signSession(ENV.SESSION_SECRET, Math.floor(Date.now() / 1000) + 600);
+}
+const api = async (body, opts) => call('/api', Object.assign({ session: await goodSession() }, body), opts);
+
+test('/api 轉送內容：上游收到 {token:API_TOKEN, action, args}，不含 session，忽略用戶端的 token', async (t) => {
+  const calls = upstream(t, () => reply200('{"ok":true,"data":{"pong":true}}'));
+  const res = await api({ action: 'ping', args: { a: 1 }, token: 'attacker' });
+  assert.equal(await text(res), '{"ok":true,"data":{"pong":true}}');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, ENV.APPS_SCRIPT_URL);
+  assert.equal(calls[0].init.method, 'POST');
+  assert.equal(calls[0].init.headers['Content-Type'], 'text/plain;charset=utf-8');
+  assert.equal(calls[0].init.redirect, 'follow');
+  assert.deepEqual(JSON.parse(calls[0].init.body), { token: ENV.API_TOKEN, action: 'ping', args: { a: 1 } });
+  assert.equal(res.headers.get('access-control-allow-origin'), ORIGIN);
+});
+
+test('/api session 缺少／非字串／過期／竄改／多餘點號 → unauthorized，且不呼叫上游', async (t) => {
+  const calls = upstream(t, () => reply200('{"ok":true,"data":1}'));
+  const { signSession } = await load();
+  const expired = await signSession(ENV.SESSION_SECRET, Math.floor(Date.now() / 1000) - 1);
+  const good = await goodSession();
+  for (const session of [undefined, null, 5, {}, '', 'a.b', expired, good + 'x', good + '.extra', good.split('.')[0] + '.AAAA']) {
+    const r = await parse(await call('/api', { session, action: 'ping' }));
+    assert.deepEqual({ ok: r.ok, code: r.code }, { ok: false, code: 'unauthorized' }, String(session));
+  }
+  assert.equal(calls.length, 0);
+});
+
+test('/api action 缺少或非字串、args 非物件 → bad_request；args 省略 → {}', async (t) => {
+  const calls = upstream(t, () => reply200('{"ok":true,"data":1}'));
+  for (const b of [{}, { action: 5 }, { action: 'ping', args: 'x' }, { action: 'ping', args: [1] }, { action: 'ping', args: null }]) {
+    assert.equal((await parse(await api(b))).code, 'bad_request', JSON.stringify(b));
+  }
+  assert.equal(calls.length, 0);
+  await api({ action: 'ping' });
+  assert.deepEqual(JSON.parse(calls[0].init.body).args, {});
+});
+
+test('/api 上游 ok:false 原樣轉回（含 existing）', async (t) => {
+  const raw = '{"ok":false,"code":"duplicate","error":"已存在","existing":{"id":"1"}}';
+  upstream(t, () => reply200(raw));
+  assert.equal(await text(await api({ action: 'addItem', args: {} })), raw);
+});
+
+test('/api 上游回 unauthorized → server_error「Worker 與後端的密碼設定不一致。」', async (t) => {
+  upstream(t, () => reply200('{"ok":false,"code":"unauthorized","error":"x"}'));
+  const r = await parse(await api({ action: 'ping' }));
+  assert.deepEqual(r, { ok: false, code: 'server_error', error: 'Worker 與後端的密碼設定不一致。' });
+});
+
+test('/api 上游回 HTML、空字串、缺 ok、連線失敗、逾時 → server_error，不洩漏上游內容', async (t) => {
+  const timeout = Object.assign(new Error('t'), { name: 'TimeoutError' });
+  const cases = [
+    [() => reply200('<html>Sign in to Google SECRETPAGE</html>'), '後端沒有回傳正確的資料。'],
+    [() => reply200(''), '後端沒有回傳正確的資料。'],
+    [() => reply200('{"nope":1}'), '後端沒有回傳正確的資料。'],
+    [() => { throw new TypeError('fetch failed https://upstream.test/exec'); }, '連不上後端。'],
+    [() => { throw timeout; }, '後端沒有在時間內回應。']
+  ];
+  for (const [impl, error] of cases) {
+    const real = globalThis.fetch;
+    globalThis.fetch = async () => impl();
+    try {
+      const body = await text(await api({ action: 'ping' }));
+      assert.deepEqual(JSON.parse(body), { ok: false, code: 'server_error', error });
+      assert.equal(body.includes('SECRETPAGE') || body.includes('upstream.test'), false);
+    } finally { globalThis.fetch = real; }
+  }
+});
+
+test('/api API_TOKEN 或 APPS_SCRIPT_URL 缺少或過短 → server_error，不呼叫上游', async (t) => {
+  const calls = upstream(t, () => reply200('{"ok":true,"data":1}'));
+  for (const [key, val] of [['API_TOKEN', undefined], ['API_TOKEN', 'k'.repeat(31)], ['APPS_SCRIPT_URL', undefined], ['APPS_SCRIPT_URL', '']]) {
+    const env = Object.assign({}, ENV, { [key]: val });
+    assert.equal((await parse(await api({ action: 'ping' }, { env }))).code, 'server_error', key);
+  }
+  assert.equal(calls.length, 0);
+});
+
+test('/api 回應不含 Secret 值；Origin 不符時無 allow-origin', async (t) => {
+  upstream(t, () => reply200('{"ok":true,"data":{"x":1}}'));
+  const res = await api({ action: 'ping' }, { origin: 'https://evil.test' });
+  assert.equal(res.headers.get('access-control-allow-origin'), null);
+  const body = await text(res);
+  for (const s of SECRETS) assert.equal(body.includes(s), false);
+});

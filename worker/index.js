@@ -114,6 +114,35 @@ async function handleLogin(request, env) {
   return reply(request, env, { ok: true, data: { session: await signSession(env.SESSION_SECRET, exp), exp } });
 }
 
+async function handleApi(request, env) {
+  if (!longEnough(env.SESSION_SECRET) || !longEnough(env.API_TOKEN) || !env.APPS_SCRIPT_URL || !env.ALLOWED_ORIGIN) {
+    return fail(request, env, 'server_error', MESSAGES.not_configured);
+  }
+  const body = await readJson(request);
+  if (!body) return fail(request, env, 'bad_request');
+  if (!(await verifySession(env.SESSION_SECRET, body.session, Math.floor(Date.now() / 1000)))) return fail(request, env, 'unauthorized');
+  const args = body.args === undefined ? {} : body.args;
+  if (typeof body.action !== 'string' || !body.action || !args || typeof args !== 'object' || Array.isArray(args)) {
+    return fail(request, env, 'bad_request');
+  }
+  let raw;
+  try {
+    const res = await fetch(env.APPS_SCRIPT_URL, {
+      method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, redirect: 'follow',
+      body: JSON.stringify({ token: env.API_TOKEN, action: body.action, args }),
+      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS)
+    });
+    raw = await res.text();
+  } catch (e) {
+    return fail(request, env, 'server_error', e && e.name === 'TimeoutError' ? MESSAGES.timeout : MESSAGES.unreachable);
+  }
+  let parsed;
+  try { parsed = JSON.parse(raw); } catch (e) { parsed = null; }
+  if (!parsed || typeof parsed !== 'object' || typeof parsed.ok !== 'boolean') return fail(request, env, 'server_error', MESSAGES.bad_upstream);
+  if (parsed.ok === false && parsed.code === 'unauthorized') return fail(request, env, 'server_error', MESSAGES.mismatch);
+  return reply(request, env, raw);
+}
+
 export default {
   async fetch(request, env) {
     const path = new URL(request.url).pathname;
@@ -123,6 +152,7 @@ export default {
       return new Response(null, { status: 204, headers: h });
     }
     if (request.method === 'POST' && path === '/login') return handleLogin(request, env);
+    if (request.method === 'POST' && path === '/api') return handleApi(request, env);
     return fail(request, env, 'bad_request');
   }
 };
