@@ -27,7 +27,7 @@
 | 前端 | 靜態網頁，發布在 GitHub Pages：`https://unnn3ing-oss.github.io/hottopic/`。repo 為公開（免費方案要求），**網頁與 repo 內不放任何機密** |
 | 後端 | Google Apps Script Web App 當 JSON API：執行身分＝部署者（使用者本人），存取權＝「任何人」。只提供 `doGet`（固定回傳 `ok`）與 `doPost` |
 | 試算表連結與授權範圍 | 指令碼屬性 `SHEET_ID` 記試算表 ID，程式一律 `SpreadsheetApp.openById`，**不依賴專案是否綁定在試算表上**（獨立專案與從試算表開的專案都能跑）。資訊清單範圍為 `spreadsheets` 與 `script.external_request`（`openById` 需要完整的 `spreadsheets`；較窄的 `spreadsheets.currentonly` 只適用綁定專案，未測試也不採用，理由見 §8）。已實測此組合可用 |
-| 存取控制 | 共用密碼（token）：至少 32 字元的隨機字串，存在 Apps Script 的「指令碼屬性」`API_TOKEN`，隨每次請求放在 POST 內文。使用者在網頁「設定」貼一次；**密碼預設只留在記憶體**，勾「在這台裝置記住」才存進瀏覽器 |
+| 存取控制 | **（已由 `2026-10-13-cloudflare-worker-auth-design.md` 取代：瀏覽器改對 Cloudflare Worker 登入，`API_TOKEN` 只存在 Worker 與 Apps Script。）** 原做法：共用密碼（token）：至少 32 字元的隨機字串，存在 Apps Script 的「指令碼屬性」`API_TOKEN`，隨每次請求放在 POST 內文。使用者在網頁「設定」貼一次；**密碼預設只留在記憶體**，勾「在這台裝置記住」才存進瀏覽器 |
 | 分支與發布 | 預設分支 `main`；開發在功能分支，經 PR 併入 `main` 才算正式；GitHub Pages **只從 `main` 部署**，部署前先跑測試（細節見 §6） |
 | 編號 | 取網址中最長的一串數字；重複編號視為已存在 |
 | 複製留言格式 | `小編文` 換一行 `https://news.tvbs.com.tw/news/編號`（不空行） |

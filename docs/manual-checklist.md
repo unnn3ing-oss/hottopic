@@ -6,9 +6,12 @@
 - [ ] Settings → Pages → Source 為「GitHub Actions」，`main` 推送後 Actions 全綠並部署成功。
 - [ ] 開 `https://unnn3ing-oss.github.io/hottopic/`，開發者工具 Console **沒有** `Refused to …`（CSP 違規）。
 - [ ] `curl -I https://unnn3ing-oss.github.io/hottopic/` 記下 `cache-control`（頁面快取時間），確認 `?v=` 資源更新有生效。
-- [ ] 設定視窗：貼上 `/exec` 網址與密碼 → 儲存並連線成功；故意貼錯密碼 → 顯示「密碼不正確」；貼錯網址 → 顯示檢查清單。
-- [ ] 重新整理後需要重新輸入密碼（未勾記住）；勾「記住」後重新整理直接載入列表。
-- [ ] 密碼輪替：改指令碼屬性 `API_TOKEN`（不重新部署）→ 網頁下一次操作自動跳出設定視窗。
+- [ ] Worker 已部署，`curl` 驗證 `/login`、`/api` 的 `ping` 都成功（見 README），之後才併入網頁 PR。
+- [ ] 設定視窗：貼上 Worker 網址與登入密碼 → 登入成功；故意貼錯密碼 → 顯示「密碼不正確」；貼錯網址（非 `workers.dev`）→ 顯示網址格式錯誤。
+- [ ] 重新整理後需要重新登入（未勾記住）；勾「記住登入」後重新整理直接載入列表；瀏覽器 localStorage 內找不到密碼本身。
+- [ ] 12 小時到期：登入後超過 12 小時再操作 → 自動跳出設定視窗並提示登入已過期（可暫時把 Worker 的 `SESSION_SECRET` 換掉來模擬）。
+- [ ] 密碼輪替：改 Worker 的 `APP_PASSWORD` → 新密碼可登入、舊密碼被拒；`API_TOKEN` 兩邊不一致時，操作會顯示「Worker 與後端的密碼設定不一致」。
+- [ ] 手機實機（iPhone Safari、Android Chrome）：登入、記住登入、重新整理後仍在登入狀態。
 
 ## 功能
 - [ ] 新增：貼網址 → 自動帶入原始標題與來源；抓不到時顯示提示且仍可儲存。
