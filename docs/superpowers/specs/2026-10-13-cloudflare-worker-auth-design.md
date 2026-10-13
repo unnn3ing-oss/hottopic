@@ -53,7 +53,7 @@ Cloudflare Worker ── 驗憑證 ──▶ Apps Script /exec  {token:API_TOKEN
 
 | 端點 | 請求（`Content-Type: text/plain;charset=utf-8` 的 JSON） | 行為 | 回應（HTTP 一律 200，與現有協定一致） |
 |---|---|---|---|
-| `POST /login` | `{password}` | 以 HMAC 雙方比對（定時）檢查 `APP_PASSWORD`；通過則簽發憑證 | 成功 `{ok:true,data:{session,exp}}`；失敗 `{ok:false,code:'unauthorized'}` |
+| `POST /login` | `{password}` | 以 HMAC 雙方比對（定時）檢查 `APP_PASSWORD`；通過則簽發憑證 | 成功 `{ok:true,data:{session,exp,ttl}}`（`ttl` 固定 43200 秒；前端以「本機時鐘＋ttl」判斷到期，不拿 `exp` 與本機時鐘比，避免本機時鐘不準時一登入就過期）；失敗 `{ok:false,code:'unauthorized'}` |
 | `POST /api` | `{session, action, args}` | 驗憑證（簽章正確且未過期）→ 以 `{token:API_TOKEN, action, args}` POST 到 `APPS_SCRIPT_URL`（跟隨轉址）→ 原樣回傳 Apps Script 的 JSON | 同現有協定 `{ok:true,data}`／`{ok:false,code,…}` |
 | `OPTIONS *` | — | 回 CORS 預檢所需標頭 | 204 |
 | 其他路徑／方法 | — | — | `{ok:false,code:'bad_request'}` |

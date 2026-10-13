@@ -28,6 +28,7 @@ test('login 成功：回 session 與約 12 小時後的 exp', async () => {
   assert.equal(res.status, 200);
   const body = await parse(res);
   assert.equal(body.ok, true);
+  assert.equal(body.data.ttl, 43200);   // 讓用戶端不必依賴自己的時鐘去比 exp
   const now = Math.floor(Date.now() / 1000);
   assert.ok(body.data.exp - now >= 43199 && body.data.exp - now <= 43201, String(body.data.exp - now));
   assert.equal(await verifySession(ENV.SESSION_SECRET, body.data.session, now), true);

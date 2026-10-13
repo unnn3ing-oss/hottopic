@@ -111,7 +111,7 @@ async function handleLogin(request, env) {
     return fail(request, env, 'unauthorized');
   }
   const exp = Math.floor(Date.now() / 1000) + SESSION_TTL_SEC;
-  return reply(request, env, { ok: true, data: { session: await signSession(env.SESSION_SECRET, exp), exp } });
+  return reply(request, env, { ok: true, data: { session: await signSession(env.SESSION_SECRET, exp), exp, ttl: SESSION_TTL_SEC } });
 }
 
 async function handleApi(request, env) {

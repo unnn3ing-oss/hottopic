@@ -111,6 +111,17 @@ test('時間流逝：登入後 12 小時再呼叫 → unauthorized，不送請�
   assert.equal(s.calls.length, 1);
 });
 
+test('時鐘偏差：本機時鐘比伺服器快很多時，仍依 ttl 判斷（不依賴伺服器的 exp 絕對時間）', async () => {
+  // 伺服器發的 exp 以本機時鐘看已經過去 13 小時，但 ttl 說還有 12 小時
+  const s = setup(router(json({ ok: true, data: { session: SESSION, exp: SEC - 13 * 3600, ttl: 43200 } }), json({ ok: true, data: 1 })));
+  await s.client.login(URL_OK, PASSWORD, true);
+  assert.equal(s.client.getConfig().session, SESSION);
+  assert.equal(await s.client.call('ping'), 1);
+  assert.equal(JSON.parse(s.storage.m.get('hotnews.v1.session')).exp, SEC + 43200);   // 存的是本機時鐘的到期時間
+  s.clock.ms += 43200 * 1000;
+  await assert.rejects(s.client.call('ping'), { code: 'unauthorized' });                // 仍會在 12 小時後到期
+});
+
 test('載入時儲存的憑證已過期 → session 為 null 且該鍵被移除', () => {
   const storage = memStorage();
   storage.m.set('hotnews.v1.url', URL_OK);

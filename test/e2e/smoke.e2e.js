@@ -122,6 +122,23 @@ test('憑證在伺服器端失效 → 下一次操作跳出設定並提示登入
   assert.equal(await page.locator('.row').count(), 3);
 });
 
+test('編輯到一半憑證失效：編輯視窗與草稿保留，重新登入後可再儲存', async (t) => {
+  const { page, api } = await open(t);
+  await connect(page);
+  await page.click('#card [data-act=edit]');
+  await page.waitForSelector('#dlg[open]');
+  await page.fill('#fNote', '寫到一半的小編文');
+  api.expireSessions();
+  await page.click('#save');
+  await page.waitForSelector('#settingsDlg[open]');
+  assert.equal(await page.locator('#dlg[open]').count(), 1);
+  assert.equal(await page.inputValue('#fNote'), '寫到一半的小編文');
+  await connect(page);
+  await page.click('#save');
+  await page.waitForSelector('#dlg', { state: 'hidden' });
+  assert.ok(api.st.items.some((i) => i.note === '寫到一半的小編文'));
+});
+
 test('列表、排序、搜尋、分類篩選與安全輸出', async (t) => {
   const { page, api } = await open(t);
   api.seed({ id: '777', cat: '財經', url: 'javascript:alert(1)', orig: '<img src=x onerror="window.__pwned=1">', note: '</script><b>x</b>',

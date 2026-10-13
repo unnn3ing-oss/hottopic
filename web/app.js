@@ -686,7 +686,7 @@
       $('dlg').close(); render(); toast('已儲存 #' + data.item.id);
     }).catch(function (err) {
       if (err.code === 'duplicate' && err.existing) { replaceItem(err.existing); render(); state.saving = false; openDialog(err.existing); return; }
-      if (err.code === 'unauthorized') { $('dlg').close(); return; }
+      if (err.code === 'unauthorized') return;   // 登入視窗已由 callApi 開啟；保留編輯視窗與草稿，重新登入後再按儲存
       setErr(err.message);
     }).then(function () { state.saving = false; $('save').disabled = false; $('save').textContent = '儲存'; });
   });

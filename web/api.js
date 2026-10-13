@@ -113,7 +113,8 @@ var HotNewsApi = (function () {
       try { base = normalizeUrl(url); checkUrl(base); } catch (e) { return Promise.reject(e); }
       return request(base, '/login', { password: clean(password) }, 30000).then(function (data) {
         if (!data || typeof data.session !== 'string' || typeof data.exp !== 'number') throw new ApiError('server_error');
-        memSession = { s: data.session, exp: data.exp };
+        // 有 ttl 就以本機時鐘 + ttl 當到期時間，不拿伺服器的絕對時間跟本機時鐘比（本機時鐘不準會一登入就過期）
+        memSession = { s: data.session, exp: typeof data.ttl === 'number' && data.ttl > 0 ? nowMs() / 1000 + data.ttl : data.exp };
         memUrl = base;
         write(KEYS.url, base);
         if (remember) { write(KEYS.session, JSON.stringify(memSession)); write(KEYS.remember, '1'); }
