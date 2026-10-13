@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="zh-Hant-TW">
 <head>
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src https://script.google.com https://script.googleusercontent.com; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src https://*.workers.dev; img-src 'self' data:; base-uri 'none'; form-action 'none'">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="referrer" content="no-referrer">
@@ -47,18 +47,18 @@
 <dialog id="settingsDlg">
   <form id="settingsForm" method="dialog">
     <h2>設定</h2>
-    <label>Apps Script 網址
-      <input id="sUrl" type="text" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off" spellcheck="false">
+    <label>Worker 網址
+      <input id="sUrl" type="text" placeholder="https://名稱.帳號.workers.dev" autocomplete="off" spellcheck="false">
     </label>
     <label>密碼
       <input id="sToken" type="password" autocomplete="off" spellcheck="false">
     </label>
-    <label class="check"><input id="sRemember" type="checkbox"> <span>在這台裝置記住密碼<br><small>勾選後密碼會存在這個瀏覽器，同一個 github.io 網域下的其他網頁也讀得到。公用或共用的電腦請不要勾。</small></span></label>
+    <label class="check"><input id="sRemember" type="checkbox"> <span>在這台裝置記住登入（最多 12 小時，不存密碼）<br><small>勾選後登入憑證會存在這個瀏覽器，同一個 github.io 網域下的其他網頁也讀得到。公用或共用的電腦請不要勾。</small></span></label>
     <div class="hint warn" id="sMsg" role="alert" hidden></div>
     <ul class="steps" id="sSteps" hidden></ul>
     <div class="dlgrow">
       <button class="btn danger" type="button" id="sClear">清除這台裝置的設定</button>
-      <button class="btn primary" type="submit" id="sSave">儲存並連線</button>
+      <button class="btn primary" type="submit" id="sSave">登入</button>
     </div>
   </form>
 </dialog>

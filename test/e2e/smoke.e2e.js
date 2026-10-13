@@ -7,9 +7,9 @@ const os = require('node:os');
 const path = require('node:path');
 const { chromium } = require('playwright');
 const { buildSite } = require('../../scripts/build-site.js');
-const { createFakeApi, seedSample, TOKEN } = require('../helpers/fake-api.js');
+const { createFakeApi, seedSample, PASSWORD } = require('../helpers/fake-api.js');
 
-const API_URL = 'https://script.google.com/macros/s/TEST_DEPLOYMENT/exec';
+const API_URL = 'https://hotnews.test-account.workers.dev';
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8' };
 let server, origin, browser, outDir;
 
@@ -28,7 +28,7 @@ test.before(async () => {
 });
 test.after(async () => { await browser.close(); server.close(); });
 
-async function open(t, { sample = true } = {}) {
+async function open(t, { sample = true, init = null } = {}) {
   const api = createFakeApi();
   if (sample) seedSample(api);
   const ctx = await browser.newContext({ timezoneId: 'Asia/Taipei', locale: 'zh-TW', viewport: { width: 900, height: 900 } });
@@ -37,13 +37,15 @@ async function open(t, { sample = true } = {}) {
   const problems = [];
   page.on('pageerror', (e) => problems.push('pageerror: ' + e.message));
   page.on('dialog', (d) => { problems.push('native dialog: ' + d.type()); d.dismiss(); });
+  if (init) await page.addInitScript(init);
   await page.addInitScript(() => document.addEventListener('securitypolicyviolation', (e) => { (window.__csp = window.__csp || []).push(e.violatedDirective); }));
   const requests = [];
-  await page.route(API_URL, async (route) => {
+  await page.route(API_URL + '/**', async (route) => {
     const r = route.request();
-    requests.push({ method: r.method(), type: r.headers()['content-type'] });
+    const path = new URL(r.url()).pathname;
+    requests.push({ method: r.method(), type: r.headers()['content-type'], path });
     await route.fulfill({ status: 200, contentType: 'text/plain', headers: { 'access-control-allow-origin': '*' },
-      body: r.method() === 'POST' ? api.raw(r.postData()) : 'ok' });
+      body: r.method() === 'POST' ? api.handle(path, r.postData()) : 'ok' });
   });
   await page.goto(origin + '/');
   t.after(async () => {
@@ -58,21 +60,24 @@ async function open(t, { sample = true } = {}) {
 
 async function connect(page, remember = false) {
   await page.fill('#sUrl', ' ' + API_URL + '\n');
-  await page.fill('#sToken', '  ' + TOKEN + '\n');
+  await page.fill('#sToken', '  ' + PASSWORD + '\n');
   if (remember) await page.check('#sRemember');
   await page.click('#sSave');
   await page.waitForSelector('#settingsDlg', { state: 'hidden' });
 }
 
-test('首次開啟跳出設定；連線後載入列表；密碼預設不寫入 localStorage', async (t) => {
-  const { page } = await open(t);
+test('首次開啟跳出設定；登入後載入列表；未勾記住時 localStorage 不含密碼與憑證', async (t) => {
+  const { page, requests } = await open(t);
   await page.waitForSelector('#settingsDlg[open]');
   assert.equal(await page.getAttribute('#sToken', 'type'), 'password');
   await connect(page);
   assert.equal(await page.locator('.row').count(), 3);
   assert.equal(await page.locator('#card .item').count(), 1);   // 右側只有一張卡片
-  assert.equal(await page.evaluate(() => localStorage.getItem('hotnews.v1.token')), null);
+  assert.equal(requests[0].path, '/login');
+  assert.ok(requests.slice(1).every((x) => x.path === '/api'));
+  assert.equal(await page.evaluate(() => localStorage.getItem('hotnews.v1.session')), null);
   assert.equal(await page.evaluate(() => localStorage.getItem('hotnews.v1.url')), API_URL);
+  assert.equal(await page.evaluate((pw) => Object.keys(localStorage).some((k) => localStorage.getItem(k).includes(pw)), PASSWORD), false);
   await page.reload();
   await page.waitForSelector('#settingsDlg[open]');
   assert.equal(await page.inputValue('#sUrl'), API_URL);
@@ -82,11 +87,56 @@ test('首次開啟跳出設定；連線後載入列表；密碼預設不寫入 l
 test('密碼錯誤顯示訊息、網址格式錯誤不送出請求', async (t) => {
   const { page, requests } = await open(t);
   await page.waitForSelector('#settingsDlg[open]');
-  await page.fill('#sUrl', 'https://example.com'); await page.fill('#sToken', TOKEN); await page.click('#sSave');
+  await page.fill('#sUrl', 'https://example.com'); await page.fill('#sToken', PASSWORD); await page.click('#sSave');
   await page.waitForSelector('#sMsg:not([hidden])');
   assert.equal(requests.length, 0);
   await page.fill('#sUrl', API_URL); await page.fill('#sToken', 'x'.repeat(48)); await page.click('#sSave');
   await page.waitForFunction(() => document.getElementById('sMsg').textContent.includes('密碼不正確'));
+  assert.equal(await page.locator('.row').count(), 0);
+});
+
+test('勾記住：重新整理後不用輸入密碼；儲存內容不含密碼；舊的密碼鍵被清掉', async (t) => {
+  const { page } = await open(t, { init: () => {
+    if (!sessionStorage.getItem('seeded')) { sessionStorage.setItem('seeded', '1'); localStorage.setItem('hotnews.v1.token', 'old-password'); }
+  } });
+  await page.waitForSelector('#settingsDlg[open]');
+  await connect(page, true);
+  assert.equal(await page.locator('.row').count(), 3);
+  await page.reload();
+  await page.waitForSelector('.row');
+  assert.equal(await page.locator('#settingsDlg[open]').count(), 0);
+  assert.equal(await page.locator('.row').count(), 3);
+  assert.equal(await page.evaluate(() => localStorage.getItem('hotnews.v1.token')), null);
+  assert.equal(await page.evaluate((pw) => Object.keys(localStorage).some((k) => localStorage.getItem(k).includes(pw)), PASSWORD), false);
+});
+
+test('憑證在伺服器端失效 → 下一次操作跳出設定並提示登入已過期', async (t) => {
+  const { page, api } = await open(t);
+  await connect(page);
+  api.expireSessions();
+  await page.click('#card [data-act=mark]');
+  await page.click('#card [data-act=mark]');
+  await page.waitForSelector('#settingsDlg[open]');
+  assert.match(await page.locator('#sMsg').textContent(), /登入已過期/);
+  await connect(page);
+  assert.equal(await page.locator('.row').count(), 3);
+});
+
+test('編輯到一半憑證失效：編輯視窗與草稿保留，重新登入後可再儲存', async (t) => {
+  const { page, api } = await open(t);
+  await connect(page);
+  await page.click('#card [data-act=edit]');
+  await page.waitForSelector('#dlg[open]');
+  await page.fill('#fNote', '寫到一半的小編文');
+  api.expireSessions();
+  await page.click('#save');
+  await page.waitForSelector('#settingsDlg[open]');
+  assert.equal(await page.locator('#dlg[open]').count(), 1);
+  assert.equal(await page.inputValue('#fNote'), '寫到一半的小編文');
+  await connect(page);
+  await page.click('#save');
+  await page.waitForSelector('#dlg', { state: 'hidden' });
+  assert.ok(api.st.items.some((i) => i.note === '寫到一半的小編文'));
 });
 
 test('列表、排序、搜尋、分類篩選與安全輸出', async (t) => {

@@ -95,7 +95,7 @@
   /* ---------- 呼叫伺服器 ---------- */
   function callApi(action, args) {
     return api.call(action, args).catch(function (e) {
-      if (e.code === 'unauthorized' || e.code === 'no_config') openSettings(e.code === 'unauthorized' ? '密碼不正確或已更換，請重新輸入。' : '');
+      if (e.code === 'unauthorized' || e.code === 'no_config') openSettings(e.code === 'unauthorized' ? '登入已過期或密碼已更換，請重新登入。' : '');
       throw e;
     });
   }
@@ -238,7 +238,7 @@
     function plain(node) { list.replaceChildren(node); $('cnt').textContent = ''; showDetail(false); renderCard(true); }
     if (state.status === 'loading') { plain(stateBox('載入中…')); return; }
     if (state.status === 'error') { plain(stateBox(state.error || '載入失敗。', '重試', 'retry')); return; }
-    if (state.status === 'idle') { plain(stateBox('尚未連線。請先到「設定」輸入 Apps Script 網址與密碼。', '開啟設定', 'settings')); return; }
+    if (state.status === 'idle') { plain(stateBox('尚未連線。請先到「設定」輸入 Worker 網址與密碼。', '開啟設定', 'settings')); return; }
     if (!state.items.length) { plain(stateBox('還沒有任何新聞。', '＋ 新增新聞', 'add-first')); return; }
     var r = visibleItems();
     $('cnt').textContent = '共 ' + r.length + ' 則';
@@ -462,7 +462,7 @@
   $('settingsBtn').addEventListener('click', function () { openSettings(); });
 
   /* ---------- 設定 ---------- */
-  var STEPS = ['網址要完整複製到 /exec 結尾', '部署時「誰可以存取」要選「任何人」', '程式或資訊清單改過後，要在「管理部署作業 → 編輯 → 新版本」重新部署', '確認網路連線正常'];
+  var STEPS = ['網址要完整複製（https://〈名稱〉.〈帳號〉.workers.dev）', 'Worker 已部署，且變數 ALLOWED_ORIGIN 設為 https://unnn3ing-oss.github.io', '確認網路連線正常'];
   function showSettingsMsg(msg, steps) {
     var m = $('sMsg'), s = $('sSteps');
     m.textContent = msg || ''; m.hidden = !msg;
@@ -483,15 +483,14 @@
     var url = $('sUrl').value, token = $('sToken').value, remember = $('sRemember').checked;
     $('sSave').disabled = true;
     showSettingsMsg('連線中…', null);
-    api.checkConnection(url, token).then(function () {
-      api.saveConfig({ url: url, token: token, remember: remember });
+    api.login(url, token, remember).then(function () {
       $('sToken').value = '';
       $('settingsDlg').close();
       return loadItems();
     }).catch(function (err) {
       if (err.code === 'unauthorized') showSettingsMsg('密碼不正確。', null);
-      else if (err.code === 'bad_request') showSettingsMsg(err.message, null);
-      else if (err.code === 'server_error') showSettingsMsg('伺服器端發生錯誤：請確認指令碼屬性 SHEET_ID 已設定、試算表可開啟，並已執行過 setup。', null);
+      else if (err.code === 'bad_request' || err.code === 'rate_limited') showSettingsMsg(err.message, null);
+      else if (err.code === 'server_error') showSettingsMsg(err.message + '（請確認 Worker 的 Secrets 都已設定，且 Apps Script 的 API_TOKEN 與 Worker 一致。）', null);
       else showSettingsMsg('連不上伺服器：網址或部署的存取權可能不對。請檢查：', STEPS);
     }).then(function () { $('sSave').disabled = false; });
   });
@@ -687,7 +686,7 @@
       $('dlg').close(); render(); toast('已儲存 #' + data.item.id);
     }).catch(function (err) {
       if (err.code === 'duplicate' && err.existing) { replaceItem(err.existing); render(); state.saving = false; openDialog(err.existing); return; }
-      if (err.code === 'unauthorized') { $('dlg').close(); return; }
+      if (err.code === 'unauthorized') return;   // 登入視窗已由 callApi 開啟；保留編輯視窗與草稿，重新登入後再按儲存
       setErr(err.message);
     }).then(function () { state.saving = false; $('save').disabled = false; $('save').textContent = '儲存'; });
   });
@@ -695,7 +694,7 @@
   /* ---------- 啟動 ---------- */
   function init() {
     var cfg = api.getConfig();
-    if (!cfg.url || !cfg.token) { render(); openSettings(); return; }
+    if (!cfg.url || !cfg.session) { render(); openSettings(); return; }
     loadItems();
   }
   init();
