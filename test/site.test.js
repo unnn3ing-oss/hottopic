@@ -16,9 +16,9 @@ const built = buildSite({ outDir: out, sha });
 const read = (f) => fs.readFileSync(path.join(out, f), 'utf8');
 const html = read('index.html');
 
-test('輸出恰為六個檔，lib.js 與 apps-script/lib.js 相同', () => {
-  assert.deepEqual(fs.readdirSync(out).sort(), ['api.js', 'app.css', 'app.js', 'index.html', 'lib.js', 'qpt.js']);
-  assert.deepEqual(built.files.slice().sort(), ['api.js', 'app.css', 'app.js', 'index.html', 'lib.js', 'qpt.js']);
+test('輸出恰為七個檔，lib.js 與 apps-script/lib.js 相同', () => {
+  assert.deepEqual(fs.readdirSync(out).sort(), ['api.js', 'app.css', 'app.js', 'index.html', 'lib.js', 'paging.js', 'qpt.js']);
+  assert.deepEqual(built.files.slice().sort(), ['api.js', 'app.css', 'app.js', 'index.html', 'lib.js', 'paging.js', 'qpt.js']);
   assert.ok(fs.readFileSync(path.join(out, 'lib.js')).equals(fs.readFileSync(path.join(__dirname, '..', 'apps-script', 'lib.js'))));
 });
 
@@ -39,11 +39,11 @@ test('沒有行內 script/style/事件屬性，資源皆為相對路徑並帶 ?v
   assert.doesNotMatch(html, /\son\w+=/i);
   for (const m of html.matchAll(/<script\b[^>]*>/gi)) assert.match(m[0], /\ssrc="/);
   const refs = [...html.matchAll(/\s(?:src|href)="([^"]*)"/gi)].map((m) => m[1]).filter((v) => v !== 'data:,');
-  assert.equal(refs.length, 5, refs.join(','));
-  for (const r of refs) assert.match(r, /^(app\.css|lib\.js|api\.js|qpt\.js|app\.js)\?v=abcdef012345$/);
+  assert.equal(refs.length, 6, refs.join(','));
+  for (const r of refs) assert.match(r, /^(app\.css|lib\.js|api\.js|qpt\.js|paging\.js|app\.js)\?v=abcdef012345$/);
   assert.doesNotMatch(html, /(?:src|href|action)="(?:https?:)?\/\//i);
   const order = refs.filter((r) => r.endsWith('.js') || /\.js\?/.test(r)).map((r) => r.split('?')[0]);
-  assert.deepEqual(order, ['lib.js', 'api.js', 'qpt.js', 'app.js']);
+  assert.deepEqual(order, ['lib.js', 'api.js', 'qpt.js', 'paging.js', 'app.js']);
 });
 
 test('DOM 契約的 id 都存在，排序選項值正確', () => {
