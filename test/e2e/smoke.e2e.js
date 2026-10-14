@@ -514,13 +514,13 @@ test('顯示則數：選項平時收合，點一下才展開，選完收合並�
   assert.equal(await page.locator('#sortX .xsel-opts').isHidden(), true);
   assert.match(await page.locator('#sizeX .xsel-val').textContent(), /10 則/);
   await page.click('#sizeX .xsel-btn');
-  assert.ok(await page.locator('#sizeX .xsel-opts').isVisible());
+  await page.locator('#sizeX .xsel-opts').waitFor({ state: 'visible' });
   assert.equal(await page.getAttribute('#sizeX .xsel-btn', 'aria-expanded'), 'true');
   assert.equal(await page.getAttribute('#sizeX [data-v="10"]', 'aria-checked'), 'true');
   await page.click('#sizeX [data-v="5"]');
   assert.equal(await page.locator('.row').count(), 5);
   assert.equal(await cntText(page), '共 28 則・第 1／6 頁');
-  assert.equal(await page.locator('#sizeX .xsel-opts').isHidden(), true);
+  await page.locator('#sizeX .xsel-opts').waitFor({ state: 'hidden' });   // 收合有轉場，等它收完
   assert.match(await page.locator('#sizeX .xsel-val').textContent(), /5 則/);
   assert.equal(await page.evaluate(() => document.activeElement.classList.contains('xsel-btn')), true);
 });
@@ -532,15 +532,15 @@ test('選擇器：Esc、點外面、展開另一個都會收合；方向鍵移�
   await page.keyboard.press('ArrowRight');
   assert.equal(await page.evaluate(() => document.activeElement.getAttribute('data-v')), '15');
   await page.keyboard.press('Escape');
-  assert.equal(await page.locator('#sizeX .xsel-opts').isHidden(), true);
+  await page.locator('#sizeX .xsel-opts').waitFor({ state: 'hidden' });   // 收合有轉場，等它收完
   assert.equal(await page.evaluate(() => document.activeElement.classList.contains('xsel-btn')), true);
   await page.click('#sizeX .xsel-btn');
   await page.click('#cnt');
-  assert.equal(await page.locator('#sizeX .xsel-opts').isHidden(), true);
+  await page.locator('#sizeX .xsel-opts').waitFor({ state: 'hidden' });   // 收合有轉場，等它收完
   await page.click('#sizeX .xsel-btn');
   await page.click('#sortX .xsel-btn');
-  assert.equal(await page.locator('#sizeX .xsel-opts').isHidden(), true);
-  assert.ok(await page.locator('#sortX .xsel-opts').isVisible());
+  await page.locator('#sizeX .xsel-opts').waitFor({ state: 'hidden' });   // 收合有轉場，等它收完
+  await page.locator('#sortX .xsel-opts').waitFor({ state: 'visible' });
   assert.equal(await page.locator('.row').count(), 10);   // 只是展開，沒有改任何設定
 });
 
@@ -657,10 +657,10 @@ test('選擇器展開時開啟設定：選擇器收合，Esc 可關閉彈窗', a
   const { page } = await openMany(t);
   await connectRows(page);
   await page.click('#sortX .xsel-btn');
-  assert.ok(await page.locator('#sortX .xsel-opts').isVisible());
+  await page.locator('#sortX .xsel-opts').waitFor({ state: 'visible' });
   await page.evaluate(() => document.getElementById('settingsBtn').click());
   await page.waitForSelector('#settingsDlg[open]');
-  assert.equal(await page.locator('#sortX .xsel-opts').isHidden(), true);
+  await page.locator('#sortX .xsel-opts').waitFor({ state: 'hidden' });   // 收合有轉場，等它收完
   await page.keyboard.press('Escape');
   await page.waitForSelector('#settingsDlg', { state: 'hidden' });
 });
@@ -773,3 +773,74 @@ for (const w of [834, 320]) {
     assert.ok(sw <= 0, '頁面橫向溢出 ' + sw + 'px ' + who.join(' | ') + ' // ' + dbg.join(' | '));
   });
 }
+
+// ---- 第二輪調整：搜尋不含小編文、選單滑動動畫、「直接產圖」綠色按鈕 ----
+test('搜尋不比對小編文：只在小編文裡出現的字搜不到，標題與原標題仍可搜到', async (t) => {
+  const { page, api } = await open(t);
+  api.st.items.find((i) => i.id === '4031880').note = '只出現在小編文的獨特詞彙';
+  await connectRows(page);
+  await page.fill('#q', '獨特詞彙');
+  assert.equal(await page.locator('.row').count(), 0);
+  assert.match(await page.locator('#list').textContent(), /沒有符合的新聞/);
+  await page.fill('#q', '');
+  const first = await page.locator('.row >> nth=0').innerText();
+  const word = first.replace(/\s+/g, ' ').split(' ').find((w) => w.length >= 2);
+  await page.fill('#q', word);
+  assert.ok(await page.locator('.row').count() >= 1);
+});
+
+test('「送到套版」按鈕改名「直接產圖」並套用綠底白字', async (t) => {
+  const { page } = await open(t, { init: FAKE_BRIDGE });
+  await connectRows(page);
+  const btn = page.locator('#card [data-act=qpt]');
+  assert.equal((await btn.textContent()).trim(), '直接產圖');
+  const bg = await btn.evaluate((e) => getComputedStyle(e).backgroundColor);
+  const [r, g, b] = bg.match(/\d+/g).map(Number);
+  assert.ok(g > r + 40 && g > b + 40, '背景應為綠色，實際 ' + bg);
+  assert.equal(await btn.evaluate((e) => getComputedStyle(e).color), 'rgb(255, 255, 255)');
+});
+
+const thumbBox = (page, id) => page.evaluate((x) => {
+  const th = document.querySelector(x + ' .xsel-thumb').getBoundingClientRect();
+  const on = document.querySelector(x + ' [aria-checked=true]').getBoundingClientRect();
+  return { dl: Math.abs(th.left - on.left), dw: Math.abs(th.width - on.width), w: th.width };
+}, id);
+
+test('選單滑動：展開時白色圓塊就位在目前選項；換選項時圓塊滑過去（有轉場），再收合', async (t) => {
+  const { page } = await openMany(t);
+  await connectRows(page);
+  await page.click('#sizeX .xsel-btn');
+  await page.waitForTimeout(450);
+  let b = await thumbBox(page, '#sizeX');
+  assert.ok(b.w > 10 && b.dl <= 1 && b.dw <= 1, '圓塊應對齊 10 則 ' + JSON.stringify(b));
+  const tr = await page.evaluate(() => ({
+    thumb: getComputedStyle(document.querySelector('#sizeX .xsel-thumb')).transitionProperty,
+    slide: getComputedStyle(document.querySelector('#sizeX .xsel-slide')).transitionProperty,
+    dur: getComputedStyle(document.querySelector('#sizeX .xsel-thumb')).transitionDuration,
+  }));
+  assert.match(tr.thumb, /transform/);
+  assert.match(tr.slide, /grid-template-columns/);
+  assert.notEqual(tr.dur, '0s');
+  await page.click('#sizeX [data-v="20"]');
+  // 剛點下去的瞬間，圓塊還在路上：沒有對齊 20 則，但選項已經是 20 則
+  const mid = await thumbBox(page, '#sizeX');
+  assert.ok(mid.dl > 1, '圓塊不該瞬移 ' + JSON.stringify(mid));
+  await page.waitForSelector('#sizeX .xsel-slide', { state: 'hidden' });
+  assert.match(await page.locator('#sizeX .xsel-val').textContent(), /20 則/);
+  // 再展開：圓塊直接在 20 則上，不從舊位置滑過來
+  await page.click('#sizeX .xsel-btn');
+  b = await thumbBox(page, '#sizeX');
+  assert.ok(b.dl <= 1, '重新展開時圓塊直接就位 ' + JSON.stringify(b));
+});
+
+test('選單滑動：系統設定「減少動態效果」時不做動畫，點選項立刻收合', async (t) => {
+  const { page } = await openMany(t);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await connectRows(page);
+  await page.click('#sortX .xsel-btn');
+  await page.locator('#sortX .xsel-opts').waitFor({ state: 'visible' });
+  assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector('#sortX .xsel-thumb')).transitionDuration), '0s');
+  await page.click('#sortX [data-v="recent"]');
+  assert.equal(await page.locator('#sortX .xsel-slide').isHidden(), true);
+  assert.equal(await page.evaluate(() => document.activeElement.classList.contains('xsel-btn')), true);
+});
