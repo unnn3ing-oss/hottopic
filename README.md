@@ -1,5 +1,7 @@
 # 熱門新聞庫
 
+**👉 [開啟網頁](https://unnn3ing-oss.github.io/hottopic/)**
+
 把挑好的熱門新聞集中管理：原文連結、多版改標（左右滑動）、小編文、上次使用時間與次數；一鍵複製標題與留言（先複製標題、再複製留言會自動記為已使用），貼網址自動帶入原始標題。
 
 **目前進度**：前端（GitHub Pages 網頁）、後端（Google Apps Script API）與登入閘道（Cloudflare Worker）程式都已完成並通過自動測試；剩下在你的 Google 與 Cloudflare 帳號部署、設定密碼（見下方「後端部署」「Cloudflare Worker 部署」）。
