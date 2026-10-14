@@ -349,3 +349,108 @@ test('新增：依網址自動選分類；手動改過分類就不再覆蓋', as
   await page.waitForFunction(() => document.getElementById('idHint').textContent.includes('1358064'));
   assert.equal(await page.inputValue('#fCat'), '娛樂');
 });
+
+// ---- 送到套版：用假的橋接取代真的 Chrome 擴充功能（真實擴充功能只能在 Chrome 實機驗證，見 docs/manual-checklist.md）----
+const FAKE_BRIDGE = () => {
+  window.__sent = [];
+  window.__bridgeMode = 'opened';   // 'opened' | 'not_opened' | 'rejected' | 'silent'
+  window.addEventListener('message', (e) => {
+    const d = e.data;
+    if (e.source !== window || !d || d.source !== 'hottopic' || d.type !== 'send-to-quickpattern') return;
+    window.__sent.push(d);
+    if (window.__bridgeMode === 'silent') return;
+    window.postMessage({ source: 'quickpattern', type: 'ack', nonce: d.nonce, ok: window.__bridgeMode !== 'rejected', opened: window.__bridgeMode === 'opened', error: window.__bridgeMode === 'rejected' ? 'bad_url' : undefined }, location.origin);
+  });
+};
+const toastText = (page) => page.evaluate(() => document.getElementById('toast').textContent);
+const waitToast = (page, text) => page.waitForFunction((x) => document.getElementById('toast').textContent === x, text);
+const sent = (page) => page.evaluate(() => window.__sent);
+
+test('送到套版：橋接回報已打開 → 顯示「已送到套版」，送出網址與卡片目前的改標', async (t) => {
+  const { page } = await open(t, { init: FAKE_BRIDGE });
+  await connect(page);
+  await pick(page, '4032757');
+  await page.click('#card [data-act=qpt]');
+  await waitToast(page, '已送到套版');
+  const msgs = await sent(page);
+  assert.equal(msgs.length, 1);
+  assert.equal(msgs[0].url, 'https://news.tvbs.com.tw/cars/4032757');
+  assert.equal(msgs[0].title, '定期保養的 5 個重點\n第 3 項最多人漏掉');
+  assert.equal(msgs[0].v, 1);
+  assert.match(msgs[0].nonce, /^[0-9a-f]{16,}$/);
+});
+
+test('送到套版：橋接沒能打開側邊欄 → 提示點工具列圖示', async (t) => {
+  const { page } = await open(t, { init: FAKE_BRIDGE });
+  await connect(page);
+  await pick(page, '4032757');
+  await page.evaluate(() => { window.__bridgeMode = 'not_opened'; });
+  await page.click('#card [data-act=qpt]');
+  await waitToast(page, '已傳給套版，請點一下工具列圖示打開側邊欄');
+});
+
+test('送到套版：沒有橋接回應 → 800 毫秒後提示沒偵測到擴充功能，並把網址複製起來', async (t) => {
+  const { page } = await open(t, { init: FAKE_BRIDGE });
+  await connect(page);
+  await pick(page, '4032757');
+  await page.evaluate(() => { window.__bridgeMode = 'silent'; });
+  const t0 = Date.now();
+  await page.click('#card [data-act=qpt]');
+  await waitToast(page, '沒偵測到套版擴充功能（需 v4.50 以上，並重新整理本頁），已複製網址');
+  assert.ok(Date.now() - t0 >= 700, '不應在等待時間內就判定沒有擴充功能');
+  assert.equal(await clip(page), 'https://news.tvbs.com.tw/cars/4032757');
+});
+
+test('送到套版：輪播到第 2 版後，送出的是第 2 版標題', async (t) => {
+  const { page } = await open(t, { init: FAKE_BRIDGE });
+  await connect(page);
+  await pick(page, '4032757');
+  await page.locator('#card .dot').nth(1).click();
+  await page.waitForFunction(() => [].findIndex.call(document.querySelectorAll('#card .dot'), (d) => d.classList.contains('on')) === 1);
+  await page.click('#card [data-act=qpt]');
+  await waitToast(page, '已送到套版');
+  assert.equal((await sent(page))[0].title, '愛車多久該保養一次？\n行家：別等警示燈亮');
+});
+
+test('送到套版：沒有改標的新聞只送網址、不帶 title', async (t) => {
+  const { page } = await open(t, { init: FAKE_BRIDGE });
+  await connect(page);
+  await pick(page, '4028301');
+  await page.click('#card [data-act=qpt]');
+  await waitToast(page, '已送到套版');
+  const m = (await sent(page))[0];
+  assert.equal(m.url, 'https://news.tvbs.com.tw/local/4028301');
+  assert.equal('title' in m, false);
+});
+
+test('送到套版：不會把新聞標記為已使用，也不影響「先複製標題、再複製留言」的自動標記', async (t) => {
+  const { page, api } = await open(t, { init: FAKE_BRIDGE });
+  await connect(page);
+  await pick(page, '4032757');
+  const card = page.locator('#card .item');
+  await card.locator('[data-act=ctitle]').click();
+  await card.locator('[data-act=qpt]').click();
+  await waitToast(page, '已送到套版');
+  assert.equal(markCalls(api).length, 0);
+  await card.locator('[data-act=cnote]').click();
+  await page.waitForFunction(() => document.getElementById('toast').textContent.includes('記錄第 1 版使用'));
+  assert.deepEqual(markCalls(api), [{ id: '4032757', ver: 1 }]);
+});
+
+test('送到套版：沒有網址的新聞，按鈕是停用的', async (t) => {
+  const { page, api } = await open(t, { init: FAKE_BRIDGE });
+  api.seed({ id: 'N9', cat: '生活', url: '', orig: '沒有網址的新聞', titles: [], note: '' });
+  await connect(page);
+  await pick(page, 'N9');
+  assert.equal(await page.locator('#card [data-act=qpt]').isDisabled(), true);
+});
+
+test('送到套版：擴充功能拒絕這個網址 → 另外提示原因，並把網址複製起來', async (t) => {
+  const { page } = await open(t, { init: FAKE_BRIDGE });
+  await connect(page);
+  await pick(page, '4032757');
+  await page.evaluate(() => { window.__bridgeMode = 'rejected'; });
+  await page.click('#card [data-act=qpt]');
+  await waitToast(page, '套版擴充功能不接受這個網址（只收 tvbs.com.tw），已複製網址');
+  assert.equal(await clip(page), 'https://news.tvbs.com.tw/cars/4032757');
+});
