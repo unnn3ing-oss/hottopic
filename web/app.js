@@ -140,7 +140,7 @@
     var r = state.items.filter(function (it) {
       if (state.cat !== '全部' && it.cat !== state.cat) return false;
       if (!q) return true;
-      var all = it.id + ' ' + it.orig + ' ' + it.note + ' ' + it.titles.map(function (v) { return v.t; }).join(' ');
+      var all = it.id + ' ' + it.orig + ' ' + it.titles.map(function (v) { return v.t; }).join(' ');
       return all.toLowerCase().indexOf(q) > -1;
     });
     var s = state.sort;
@@ -213,7 +213,7 @@
       h('div', { class: 'acts' },
         h('button', { type: 'button', class: 'btn', 'data-act': 'ctitle', disabled: !n || state.busy.has(it.id) }, '複製標題'),
         h('button', { type: 'button', class: 'btn', 'data-act': 'cnote' }, '複製留言'),
-        h('button', { type: 'button', class: 'btn', 'data-act': 'qpt', disabled: !it.url }, '送到套版'),
+        h('button', { type: 'button', class: 'btn go', 'data-act': 'qpt', disabled: !it.url }, '直接產圖'),
         h('button', { type: 'button', class: 'btn primary' + (confirming ? ' confirm' : ''), 'data-act': 'mark', disabled: state.busy.has(it.id) }, markLabel(confirming, n, p)),
         h('button', { type: 'button', class: 'btn', 'data-act': 'edit' }, '編輯')));
   }
@@ -292,34 +292,61 @@
   /* ---------- 展開式選擇器（排序、顯示則數） ---------- */
   var xsels = [];
   function closeXsels(except) { xsels.forEach(function (x) { if (x !== except) x.close(); }); }
+  var REDUCED = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : { matches: false };
+  var SLIDE_MS = 340, PICK_MS = 200;   // 展開／收合的轉場長度；點選項後讓圓塊滑到定位再收合
   function makeXsel(rootId, cfg) {
-    var root = $(rootId), btn = root.querySelector('.xsel-btn'), box = root.querySelector('.xsel-opts'), val = root.querySelector('.xsel-val');
+    var root = $(rootId), btn = root.querySelector('.xsel-btn'), slide = root.querySelector('.xsel-slide'), box = root.querySelector('.xsel-opts'), val = root.querySelector('.xsel-val');
+    var thumb = h('span', { class: 'xsel-thumb', 'aria-hidden': 'true' });
+    var hideTimer = 0, pickTimer = 0;
     function radios() { return Array.prototype.slice.call(box.querySelectorAll('[role=radio]')); }
+    // 圓塊只用 transform 位移（不觸發重排）；尺寸與位置用 CSSOM 設定（CSP 允許，不是 inline style 屬性）
+    function place(animate) {
+      var on = box.querySelector('[aria-checked=true]');
+      if (!on || slide.hidden) return;
+      if (!animate) thumb.classList.add('notrans');
+      thumb.style.width = on.offsetWidth + 'px';
+      thumb.style.height = on.offsetHeight + 'px';
+      thumb.style.transform = 'translate3d(' + on.offsetLeft + 'px,' + on.offsetTop + 'px,0)';
+      box.classList.add('seg-ready');
+      if (!animate) { void thumb.offsetWidth; thumb.classList.remove('notrans'); }
+    }
     function sync() {
       var cur = cfg.get();
       val.textContent = cfg.valueText(cur);
       radios().forEach(function (r) { r.setAttribute('aria-checked', String(r.getAttribute('data-v') === cur)); });
     }
+    function isOpen() { return root.hasAttribute('data-open'); }
     function close(focusBtn) {
-      if (box.hidden) return;
-      box.hidden = true; btn.setAttribute('aria-expanded', 'false'); root.removeAttribute('data-open');
+      clearTimeout(pickTimer);
+      if (!isOpen()) return;
+      btn.setAttribute('aria-expanded', 'false'); root.removeAttribute('data-open');
+      clearTimeout(hideTimer);
+      if (REDUCED.matches) slide.hidden = true;
+      else hideTimer = setTimeout(function () { if (!isOpen()) slide.hidden = true; }, SLIDE_MS);
       if (focusBtn) btn.focus();
     }
     function open() {
       closeXsels(api_);
-      box.hidden = false; btn.setAttribute('aria-expanded', 'true'); root.setAttribute('data-open', 'true');
-      var on = box.querySelector('[aria-checked=true]'); if (on) on.focus();
+      clearTimeout(hideTimer); clearTimeout(pickTimer);
+      slide.hidden = false;
+      place(false);
+      void slide.offsetWidth;   // 先讓瀏覽器以收合狀態排一次版，之後展開才有轉場
+      btn.setAttribute('aria-expanded', 'true'); root.setAttribute('data-open', 'true');
+      var on = box.querySelector('[aria-checked=true]'); if (on) on.focus({ preventScroll: true });
     }
     var api_ = { root: root, close: close };
-    box.replaceChildren.apply(box, cfg.options.map(function (o) {
+    box.replaceChildren.apply(box, [thumb].concat(cfg.options.map(function (o) {
       return h('button', { type: 'button', role: 'radio', 'data-v': o.v, 'aria-checked': 'false', text: o.label });
-    }));
-    btn.addEventListener('click', function () { if (box.hidden) open(); else close(true); });
+    })));
+    btn.addEventListener('click', function () { if (!isOpen()) open(); else close(true); });
     box.addEventListener('click', function (e) {
       var r = e.target.closest('[role=radio]');
       if (!r) return;
       cfg.set(r.getAttribute('data-v'));
-      sync(); close(true);
+      sync(); place(true);
+      clearTimeout(pickTimer);
+      if (REDUCED.matches) close(true);
+      else pickTimer = setTimeout(function () { close(true); }, PICK_MS);
     });
     box.addEventListener('keydown', function (e) {
       if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
