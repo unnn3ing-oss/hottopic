@@ -71,6 +71,7 @@ test('首次開啟跳出設定；登入後載入列表；未勾記住時 localSt
   await page.waitForSelector('#settingsDlg[open]');
   assert.equal(await page.getAttribute('#sToken', 'type'), 'password');
   await connect(page);
+  await page.waitForSelector('.row');   // 彈窗關閉時列表可能還在載入
   assert.equal(await page.locator('.row').count(), 3);
   assert.equal(await page.locator('#card .item').count(), 1);   // 右側只有一張卡片
   assert.equal(requests[0].path, '/login');
