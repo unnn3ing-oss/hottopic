@@ -6,7 +6,7 @@
   var DAY = 864e5;
   var REDUCED = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   var state = {
-    items: [], cats: [], status: 'idle', error: '', cat: '全部', q: '', sort: 'oldest',
+    items: [], cats: [], status: 'idle', error: '', cat: '全部', q: '', sort: 'oldest', size: loadSize(), page: 1,
     pos: {}, pendingMark: null, markTimer: null, busy: new Set(),
     editing: null, draft: [], removed: [], saving: false, delTimer: null,
     fetchSeq: 0, lastFetchUrl: null, origTouched: false, catTouched: false,
@@ -113,6 +113,7 @@
   }
 
   function loadItems() {
+    closeXsels();
     state.status = 'loading';
     render();
     return callApi('listItems', {}).then(function (data) {
@@ -236,20 +237,127 @@
   function render() {
     var list = $('list');
     renderChips();
-    function plain(node) { list.replaceChildren(node); $('cnt').textContent = ''; showDetail(false); renderCard(true); }
+    function plain(node) { list.replaceChildren(node); $('cnt').textContent = ''; $('pager').hidden = true; showDetail(false); renderCard(true); }
     if (state.status === 'loading') { plain(stateBox('載入中…')); return; }
     if (state.status === 'error') { plain(stateBox(state.error || '載入失敗。', '重試', 'retry')); return; }
     if (state.status === 'idle') { plain(stateBox('尚未連線。請先到「設定」輸入 Worker 網址與密碼。', '開啟設定', 'settings')); return; }
     if (!state.items.length) { plain(stateBox('還沒有任何新聞。', '＋ 新增新聞', 'add-first')); return; }
     var r = visibleItems();
-    $('cnt').textContent = '共 ' + r.length + ' 則';
-    if (!r.length) { list.replaceChildren(h('div', { class: 'none', text: '沒有符合的新聞。調整搜尋或分類，或按「＋ 新增新聞」。' })); state.sel = null; showDetail(false); renderCard(true); return; }
-    if (!r.some(function (i) { return i.id === state.sel; })) {   // 目前選的不在清單裡：改選第一則
-      state.sel = r[0].id; state.copied = null; state.pendingMark = null; showDetail(false);
+    if (!r.length) {
+      $('cnt').textContent = '共 0 則'; $('pager').hidden = true;
+      list.replaceChildren(h('div', { class: 'none', text: '沒有符合的新聞。調整搜尋或分類，或按「＋ 新增新聞」。' })); state.sel = null; showDetail(false); renderCard(true); return;
     }
-    list.replaceChildren.apply(list, r.map(buildRow));
+    var pages = HotNewsPaging.pageCount(r.length, state.size);
+    if (state.sel && r.some(function (i) { return i.id === state.sel; })) {
+      state.page = HotNewsPaging.pageOf(r, state.sel, state.size);   // 選中的新聞跟著它所在的那一頁
+    } else {                                                          // 沒有選中或不在結果裡：改選當頁第一則
+      state.page = HotNewsPaging.clampPage(state.page, pages);
+      state.sel = HotNewsPaging.slicePage(r, state.page, state.size)[0].id;
+      state.copied = null; state.pendingMark = null; showDetail(false);
+    }
+    $('cnt').textContent = '共 ' + r.length + ' 則・第 ' + state.page + '／' + pages + ' 頁';
+    list.replaceChildren.apply(list, HotNewsPaging.slicePage(r, state.page, state.size).map(buildRow));
+    renderPager(pages);
     renderCard();
   }
+
+  // 使用者改變檢視（換分類、搜尋、排序、則數、翻頁）：選中該頁第一則
+  function goView(page) { state.sel = null; state.page = page || 1; render(); }
+
+  function renderPager(pages) {
+    var box = $('pager');
+    box.hidden = pages <= 1;
+    if (pages <= 1) { box.replaceChildren(); return; }
+    var cur = state.page;
+    var parts = [h('button', { type: 'button', 'data-page': String(cur - 1), 'aria-label': '上一頁', disabled: cur <= 1 }, '‹')];
+    HotNewsPaging.pageWindow(cur, pages).forEach(function (n) {
+      parts.push(n === '…' ? h('span', { class: 'gap', text: '…' })
+        : h('button', { type: 'button', 'data-page': String(n), 'aria-current': n === cur ? 'page' : false, 'aria-label': '第 ' + n + ' 頁' }, String(n)));
+    });
+    parts.push(h('button', { type: 'button', 'data-page': String(cur + 1), 'aria-label': '下一頁', disabled: cur >= pages }, '›'));
+    box.replaceChildren.apply(box, parts);
+  }
+  $('pager').addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-page]');
+    if (!b || b.disabled) return;
+    var label = b.getAttribute('aria-label');
+    goView(+b.getAttribute('data-page'));
+    window.scrollTo(0, 0);
+    // renderPager 會換掉整排按鈕；鍵盤翻頁要把焦點放回同一顆（上／下一頁；到頭了就落在目前頁），不然會掉到 body
+    var again = [].filter.call($('pager').querySelectorAll('button'), function (x) { return x.getAttribute('aria-label') === label && !x.disabled; })[0]
+      || $('pager').querySelector('button[aria-current]');
+    if (again) again.focus({ preventScroll: true });
+  });
+
+  /* ---------- 展開式選擇器（排序、顯示則數） ---------- */
+  var xsels = [];
+  function closeXsels(except) { xsels.forEach(function (x) { if (x !== except) x.close(); }); }
+  function makeXsel(rootId, cfg) {
+    var root = $(rootId), btn = root.querySelector('.xsel-btn'), box = root.querySelector('.xsel-opts'), val = root.querySelector('.xsel-val');
+    function radios() { return Array.prototype.slice.call(box.querySelectorAll('[role=radio]')); }
+    function sync() {
+      var cur = cfg.get();
+      val.textContent = cfg.valueText(cur);
+      radios().forEach(function (r) { r.setAttribute('aria-checked', String(r.getAttribute('data-v') === cur)); });
+    }
+    function close(focusBtn) {
+      if (box.hidden) return;
+      box.hidden = true; btn.setAttribute('aria-expanded', 'false'); root.removeAttribute('data-open');
+      if (focusBtn) btn.focus();
+    }
+    function open() {
+      closeXsels(api_);
+      box.hidden = false; btn.setAttribute('aria-expanded', 'true'); root.setAttribute('data-open', 'true');
+      var on = box.querySelector('[aria-checked=true]'); if (on) on.focus();
+    }
+    var api_ = { root: root, close: close };
+    box.replaceChildren.apply(box, cfg.options.map(function (o) {
+      return h('button', { type: 'button', role: 'radio', 'data-v': o.v, 'aria-checked': 'false', text: o.label });
+    }));
+    btn.addEventListener('click', function () { if (box.hidden) open(); else close(true); });
+    box.addEventListener('click', function (e) {
+      var r = e.target.closest('[role=radio]');
+      if (!r) return;
+      cfg.set(r.getAttribute('data-v'));
+      sync(); close(true);
+    });
+    box.addEventListener('keydown', function (e) {
+      if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+      var rs = radios(), i = rs.indexOf(document.activeElement);
+      if (i === -1) return;
+      e.preventDefault();
+      rs[(i + (e.key === 'ArrowRight' ? 1 : rs.length - 1)) % rs.length].focus();
+    });
+    sync();
+    xsels.push(api_);
+    return api_;
+  }
+  document.addEventListener('click', function (e) { xsels.forEach(function (x) { if (!x.root.contains(e.target)) x.close(); }); });
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    var openOne = xsels.filter(function (x) { return x.root.hasAttribute('data-open'); })[0];
+    if (!openOne) return;
+    e.preventDefault(); openOne.close(true);
+  });
+
+  var SORTS = [['oldest', '久未用'], ['recent', '最近用'], ['count', '次數'], ['created', '最新']];
+  makeXsel('sortX', {
+    options: SORTS.map(function (x) { return { v: x[0], label: x[1] }; }),
+    get: function () { return state.sort; },
+    set: function (v) { state.sort = v; goView(); },
+    valueText: function (v) { return SORTS.filter(function (x) { return x[0] === v; })[0][1]; }
+  });
+  makeXsel('sizeX', {
+    options: HotNewsPaging.PAGE_SIZES.map(function (n) { return { v: String(n), label: String(n) }; }),
+    get: function () { return String(state.size); },
+    set: function (v) { state.size = HotNewsPaging.normalizeSize(v); saveSize(state.size); goView(); },
+    valueText: function (v) { return v + ' 則'; }
+  });
+
+  function loadSize() {
+    try { return HotNewsPaging.normalizeSize(window.localStorage.getItem('hottopic.pageSize')); } catch (e) { return HotNewsPaging.normalizeSize(null); }
+  }
+  function saveSize(n) { try { window.localStorage.setItem('hottopic.pageSize', String(n)); } catch (e) { /* 不能存就算了，本次照常運作 */ } }
 
   function selectItem(id) {
     if (state.sel !== id) { state.sel = id; state.copied = null; clearPending(); }
@@ -477,10 +585,19 @@
     var b = e.target.closest('.chip');
     if (!b) return;
     state.cat = b.getAttribute('data-cat');
-    render();
+    goView();
   });
-  $('q').addEventListener('input', function (e) { state.q = e.target.value; render(); });
-  $('sort').addEventListener('change', function (e) { state.sort = e.target.value; render(); });
+  $('q').addEventListener('input', function (e) { state.q = e.target.value; goView(); });
+  // 手機：搜尋框平時收起，點頂欄的放大鏡才出現
+  function setSearching(on) {
+    document.body.classList.toggle('searching', on);
+    $('searchBtn').setAttribute('aria-expanded', String(on));
+    if (on) $('q').focus();
+  }
+  function syncSearchBtn() { $('searchBtn').classList.toggle('on', !!$('q').value); }
+  $('searchBtn').addEventListener('click', function () { setSearching(!document.body.classList.contains('searching')); });
+  $('q').addEventListener('input', syncSearchBtn);
+  if (MOBILE.addEventListener) MOBILE.addEventListener('change', function (e) { if (!e.matches) setSearching(false); });
   $('addBtn').addEventListener('click', function () { openDialog(null); });
   $('settingsBtn').addEventListener('click', function () { openSettings(); });
 
@@ -493,6 +610,7 @@
     s.hidden = !(steps && steps.length);
   }
   function openSettings(reason) {
+    closeXsels();
     var cfg = api.getConfig();
     $('sUrl').value = cfg.url || '';
     $('sToken').value = '';
@@ -571,6 +689,7 @@
   function setErr(msg) { var e = $('err'); e.textContent = msg || ''; e.hidden = !msg; }
 
   function openDialog(item) {
+    closeXsels();
     state.editing = item || null;
     state.removed = [];
     state.saving = false;

@@ -12,37 +12,44 @@
 <script src="lib.js" defer></script>
 <script src="api.js" defer></script>
 <script src="qpt.js" defer></script>
+<script src="paging.js" defer></script>
 <script src="app.js" defer></script>
 </head>
 <body>
+<header class="topbar">
+  <h1>熱門新聞庫</h1>
+  <div class="search"><input type="search" id="q" placeholder="搜尋標題、小編文、編號" aria-label="搜尋"></div>
+  <div class="tools">
+    <button class="btn iconbtn searchbtn" id="searchBtn" type="button" aria-label="搜尋" aria-expanded="false"><svg class="ico" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg></button>
+    <button class="btn" id="settingsBtn" type="button" aria-label="設定"><svg class="ico" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg><span class="lbl">設定</span></button>
+    <button class="btn primary" id="addBtn" type="button" aria-label="新增新聞"><svg class="ico" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span class="lbl">＋ 新增新聞</span></button>
+  </div>
+</header>
 <div class="wrap">
-  <div class="app">
-    <div class="topbar">
-      <h1>熱門新聞庫</h1>
-      <input type="search" id="q" placeholder="搜尋標題、小編文、編號" aria-label="搜尋">
-      <button class="btn" id="settingsBtn" type="button">設定</button>
-      <button class="btn primary" id="addBtn" type="button">＋ 新增新聞</button>
-    </div>
-    <div class="split">
+  <div class="split">
       <section class="pane-l">
         <div class="filters">
           <div class="chips" id="chips"></div>
           <div class="sortrow">
-            <span id="cnt"></span>
-            <select id="sort" aria-label="排序">
-              <option value="oldest">最久未用優先</option>
-              <option value="recent">最近使用優先</option>
-              <option value="count">使用次數多到少</option>
-              <option value="created">最新新增</option>
-            </select>
+            <span id="cnt" aria-live="polite"></span>
+            <div class="ctl">
+              <div class="xsel" id="sortX">
+                <button type="button" class="xsel-btn" aria-haspopup="true" aria-expanded="false"><span class="xsel-lbl">排序</span><span class="xsel-val"></span><span class="xsel-caret" aria-hidden="true">▾</span></button>
+                <div class="xsel-opts" role="radiogroup" aria-label="排序" hidden></div>
+              </div>
+              <div class="xsel" id="sizeX">
+                <button type="button" class="xsel-btn" aria-haspopup="true" aria-expanded="false"><span class="xsel-lbl">顯示</span><span class="xsel-val"></span><span class="xsel-caret" aria-hidden="true">▾</span></button>
+                <div class="xsel-opts" role="radiogroup" aria-label="顯示則數" hidden></div>
+              </div>
+            </div>
           </div>
         </div>
         <div class="rows" id="list" role="listbox" aria-label="新聞列表"></div>
+        <nav class="pager" id="pager" aria-label="分頁" hidden></nav>
+      <p class="foot">改標可左右滑動（手機用手指；電腦可用滑鼠拖曳、觸控板橫滑、方向鍵，或把滑鼠移到卡片上按 ‹ ›）。「複製標題」複製目前顯示的那一版；先按「複製標題」再按「複製留言」，會自動記為已使用（記在複製的那一版和整則新聞上）；也可以按「標記已使用」手動記錄。複製留言的網址格式：https://news.tvbs.com.tw/news/編號</p>
       </section>
       <section class="pane-r"><div id="card"></div></section>
-    </div>
   </div>
-  <p class="foot">改標可左右滑動（手機用手指；電腦可用滑鼠拖曳、觸控板橫滑、方向鍵，或把滑鼠移到卡片上按 ‹ ›）。「複製標題」複製目前顯示的那一版；先按「複製標題」再按「複製留言」，會自動記為已使用（記在複製的那一版和整則新聞上）；也可以按「標記已使用」手動記錄。複製留言的網址格式：https://news.tvbs.com.tw/news/編號</p>
 </div>
 
 <dialog id="settingsDlg">

@@ -71,6 +71,7 @@ test('首次開啟跳出設定；登入後載入列表；未勾記住時 localSt
   await page.waitForSelector('#settingsDlg[open]');
   assert.equal(await page.getAttribute('#sToken', 'type'), 'password');
   await connect(page);
+  await page.waitForSelector('.row');   // 彈窗關閉時列表可能還在載入
   assert.equal(await page.locator('.row').count(), 3);
   assert.equal(await page.locator('#card .item').count(), 1);   // 右側只有一張卡片
   assert.equal(requests[0].path, '/login');
@@ -100,7 +101,7 @@ test('勾記住：重新整理後不用輸入密碼；儲存內容不含密碼�
     if (!sessionStorage.getItem('seeded')) { sessionStorage.setItem('seeded', '1'); localStorage.setItem('hotnews.v1.token', 'old-password'); }
   } });
   await page.waitForSelector('#settingsDlg[open]');
-  await connect(page, true);
+  await connectRows(page, true);
   assert.equal(await page.locator('.row').count(), 3);
   await page.reload();
   await page.waitForSelector('.row');
@@ -118,7 +119,7 @@ test('憑證在伺服器端失效 → 下一次操作跳出設定並提示登入
   await page.click('#card [data-act=mark]');
   await page.waitForSelector('#settingsDlg[open]');
   assert.match(await page.locator('#sMsg').textContent(), /登入已過期/);
-  await connect(page);
+  await connectRows(page);
   assert.equal(await page.locator('.row').count(), 3);
 });
 
@@ -474,3 +475,301 @@ test('送到套版：改標被拒（bad_title）→ 提示改標的問題，不�
   await page.click('#card [data-act=qpt]');
   await waitToast(page, '套版擴充功能不接受這個改標（超過 500 字或沒有內容），已複製網址');
 });
+
+/* ---------- 顯示則數、排序選擇器與分頁 ---------- */
+function seedMany(api, n) {
+  for (let i = 0; i < n; i++) {
+    api.seed({ id: String(5000 + i), cat: '生活', url: 'https://news.tvbs.com.tw/local/' + (5000 + i), orig: '測試新聞 ' + i,
+      titles: [{ ver: 1, t: '標題 ' + i, last: null, count: 0 }], created: api.st.now - i });
+  }
+}
+async function openMany(t, n = 25, opts = {}) {
+  const r = await open(t, opts);
+  seedMany(r.api, n);
+  return r;
+}
+async function connectRows(page, remember) { await connect(page, remember); await page.waitForSelector('.row'); }   // 彈窗關閉時列表可能還在載入
+const cntText = (page) => page.locator('#cnt').textContent();
+const rowIds = (page) => page.$$eval('.row', (els) => els.map((e) => e.dataset.id));
+
+test('分頁：預設每頁 10 則，顯示「第 p／P 頁」與分頁列；單頁時不顯示分頁列', async (t) => {
+  const { page } = await openMany(t);
+  await connectRows(page);
+  assert.equal(await page.locator('.row').count(), 10);
+  assert.equal(await cntText(page), '共 28 則・第 1／3 頁');
+  assert.ok(await page.locator('#pager').isVisible());
+  assert.ok(await page.locator('#pager [data-page="3"]').isVisible());
+  assert.equal(await page.locator('#pager [data-page="0"]').isDisabled(), true);   // 首頁的「‹」
+  assert.equal(await page.getAttribute('#pager [aria-current=page]', 'data-page'), '1');
+  const r2 = await open(t);   // 只有 3 則樣本
+  await connectRows(r2.page);
+  assert.equal(await r2.page.locator('#pager').isHidden(), true);
+  assert.equal(await cntText(r2.page), '共 3 則・第 1／1 頁');
+});
+
+test('顯示則數：選項平時收合，點一下才展開，選完收合並生效', async (t) => {
+  const { page } = await openMany(t);
+  await connectRows(page);
+  assert.equal(await page.locator('#sizeX .xsel-opts').isHidden(), true);
+  assert.equal(await page.locator('#sortX .xsel-opts').isHidden(), true);
+  assert.match(await page.locator('#sizeX .xsel-val').textContent(), /10 則/);
+  await page.click('#sizeX .xsel-btn');
+  assert.ok(await page.locator('#sizeX .xsel-opts').isVisible());
+  assert.equal(await page.getAttribute('#sizeX .xsel-btn', 'aria-expanded'), 'true');
+  assert.equal(await page.getAttribute('#sizeX [data-v="10"]', 'aria-checked'), 'true');
+  await page.click('#sizeX [data-v="5"]');
+  assert.equal(await page.locator('.row').count(), 5);
+  assert.equal(await cntText(page), '共 28 則・第 1／6 頁');
+  assert.equal(await page.locator('#sizeX .xsel-opts').isHidden(), true);
+  assert.match(await page.locator('#sizeX .xsel-val').textContent(), /5 則/);
+  assert.equal(await page.evaluate(() => document.activeElement.classList.contains('xsel-btn')), true);
+});
+
+test('選擇器：Esc、點外面、展開另一個都會收合；方向鍵移動焦點', async (t) => {
+  const { page } = await openMany(t);
+  await connectRows(page);
+  await page.click('#sizeX .xsel-btn');
+  await page.keyboard.press('ArrowRight');
+  assert.equal(await page.evaluate(() => document.activeElement.getAttribute('data-v')), '15');
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('#sizeX .xsel-opts').isHidden(), true);
+  assert.equal(await page.evaluate(() => document.activeElement.classList.contains('xsel-btn')), true);
+  await page.click('#sizeX .xsel-btn');
+  await page.click('#cnt');
+  assert.equal(await page.locator('#sizeX .xsel-opts').isHidden(), true);
+  await page.click('#sizeX .xsel-btn');
+  await page.click('#sortX .xsel-btn');
+  assert.equal(await page.locator('#sizeX .xsel-opts').isHidden(), true);
+  assert.ok(await page.locator('#sortX .xsel-opts').isVisible());
+  assert.equal(await page.locator('.row').count(), 10);   // 只是展開，沒有改任何設定
+});
+
+test('排序選擇器：改成「最近用」「次數」後列表順序改變，並回到第 1 頁', async (t) => {
+  const { page } = await openMany(t);
+  await connectRows(page);
+  await page.click('#pager [data-page="2"]');
+  await page.click('#sortX .xsel-btn');
+  await page.click('#sortX [data-v="recent"]');
+  assert.equal(await page.getAttribute('.row', 'data-id'), '4032757');   // 唯一用過的排最前
+  assert.match(await cntText(page), /第 1／3 頁/);
+  assert.match(await page.locator('#sortX .xsel-val').textContent(), /最近用/);
+  await page.click('#sortX .xsel-btn');
+  await page.click('#sortX [data-v="count"]');
+  assert.equal(await page.getAttribute('.row', 'data-id'), '4032757');
+  await page.click('#sortX .xsel-btn');
+  await page.click('#sortX [data-v="created"]');
+  assert.equal(await page.getAttribute('.row', 'data-id'), '5000');   // 最新新增（seedMany 的 created 比樣本都新）
+});
+
+test('顯示則數：重新整理後仍保留；localStorage 壞值或不能用時回到 10 且頁面照常', async (t) => {
+  const { page } = await openMany(t);
+  await connectRows(page, true);
+  await page.click('#sizeX .xsel-btn');
+  await page.click('#sizeX [data-v="15"]');
+  assert.equal(await page.evaluate(() => localStorage.getItem('hottopic.pageSize')), '15');
+  await page.reload();
+  await page.waitForSelector('.row');
+  assert.equal(await page.locator('.row').count(), 15);
+  assert.match(await page.locator('#sizeX .xsel-val').textContent(), /15 則/);
+});
+
+test('顯示則數：儲存值是壞的（7）→ 10', async (t) => {
+  const { page } = await openMany(t, 25, { init: () => { if (!sessionStorage.getItem('s')) { sessionStorage.setItem('s', '1'); localStorage.setItem('hottopic.pageSize', '7'); } } });
+  await connectRows(page);
+  assert.equal(await page.locator('.row').count(), 10);
+  assert.match(await page.locator('#sizeX .xsel-val').textContent(), /10 則/);
+});
+
+test('顯示則數：localStorage 讀寫該鍵都丟例外 → 仍是 10、切換不當掉', async (t) => {
+  const { page } = await openMany(t, 25, { init: () => {
+    const g = Storage.prototype.getItem, s = Storage.prototype.setItem;
+    Storage.prototype.getItem = function (k) { if (k === 'hottopic.pageSize') throw new Error('denied'); return g.apply(this, arguments); };
+    Storage.prototype.setItem = function (k) { if (k === 'hottopic.pageSize') throw new Error('denied'); return s.apply(this, arguments); };
+  } });
+  await connectRows(page);
+  assert.equal(await page.locator('.row').count(), 10);
+  await page.click('#sizeX .xsel-btn');
+  await page.click('#sizeX [data-v="20"]');
+  assert.equal(await page.locator('.row').count(), 20);
+});
+
+test('翻頁與回到第 1 頁：選中該頁第一則；換分類、搜尋、排序、則數都回第 1 頁', async (t) => {
+  const { page } = await openMany(t);
+  await connectRows(page);
+  await page.evaluate(() => window.scrollTo(0, 300));
+  await page.click('#pager [data-page="2"]');
+  assert.match(await cntText(page), /第 2／3 頁/);
+  assert.equal(await page.getAttribute('.row', 'data-id'), '5008');
+  assert.equal(await page.getAttribute('.row[aria-selected=true]', 'data-id'), '5008');
+  assert.equal(await page.getAttribute('#card .item', 'data-id'), '5008');
+  assert.equal(await page.evaluate(() => window.scrollY), 0);
+  await page.click('.chip[data-cat="生活"]');
+  assert.match(await cntText(page), /第 1／3 頁/);
+  await page.click('#pager [data-page="2"]');
+  await page.fill('#q', '測試');
+  assert.match(await cntText(page), /共 25 則・第 1／3 頁/);
+  await page.fill('#q', '');
+  await page.click('#pager [data-page="3"]');
+  await page.click('#sizeX .xsel-btn');
+  await page.click('#sizeX [data-v="20"]');
+  assert.match(await cntText(page), /第 1／2 頁/);
+});
+
+test('標記已使用讓新聞排到別頁：頁碼跟著跳，列表選中列與卡片一致', async (t) => {
+  const { page } = await openMany(t);
+  await connectRows(page);
+  assert.equal(await page.getAttribute('.row[aria-selected=true]', 'data-id'), '4031880');
+  const card = page.locator('#card .item');
+  await card.locator('[data-act=mark]').click();
+  await card.locator('[data-act=mark]').click();
+  await page.waitForFunction(() => document.getElementById('toast').textContent.includes('已記錄'));
+  assert.match(await cntText(page), /第 3／3 頁/);
+  assert.equal(await page.getAttribute('.row[aria-selected=true]', 'data-id'), '4031880');
+  assert.equal(await page.getAttribute('#card .item', 'data-id'), '4031880');
+});
+
+test('刪光最後一頁的新聞：頁碼夾回前一頁、不出現空白頁', async (t) => {
+  const { page } = await openMany(t, 21);   // 3 + 21 = 24 則，每頁 10 → 3 頁，最後一頁 4 則
+  await connectRows(page);
+  await page.click('#pager [data-page="3"]');
+  assert.equal(await page.locator('.row').count(), 4);
+  for (let i = 0; i < 4; i++) {
+    await page.click('#card .item [data-act=edit]');
+    await page.click('#del');
+    await page.click('#del');
+    await page.waitForSelector('#dlg', { state: 'hidden' });
+  }
+  assert.match(await cntText(page), /共 20 則・第 2／2 頁/);
+  assert.ok((await page.locator('.row').count()) > 0);
+});
+
+test('沒有結果、載入前：不顯示分頁列，計數不帶頁碼', async (t) => {
+  const { page } = await openMany(t);
+  assert.equal(await page.locator('#pager').isHidden(), true);   // 尚未連線
+  await connectRows(page);
+  await page.fill('#q', '(');
+  assert.match(await page.locator('#list').textContent(), /沒有符合的新聞/);
+  assert.equal(await page.locator('#pager').isHidden(), true);
+  assert.equal(await cntText(page), '共 0 則');
+});
+
+test('選擇器展開時開啟設定：選擇器收合，Esc 可關閉彈窗', async (t) => {
+  const { page } = await openMany(t);
+  await connectRows(page);
+  await page.click('#sortX .xsel-btn');
+  assert.ok(await page.locator('#sortX .xsel-opts').isVisible());
+  await page.evaluate(() => document.getElementById('settingsBtn').click());
+  await page.waitForSelector('#settingsDlg[open]');
+  assert.equal(await page.locator('#sortX .xsel-opts').isHidden(), true);
+  await page.keyboard.press('Escape');
+  await page.waitForSelector('#settingsDlg', { state: 'hidden' });
+});
+
+/* ---------- 版面：固定頂欄、固定右側卡片、手機圖示按鈕 ---------- */
+const top = (page, sel) => page.evaluate((s) => document.querySelector(s).getBoundingClientRect().top, sel);
+
+test('桌機：往下捲動時頂欄固定在最上方、右側卡片不動', async (t) => {
+  const { page } = await openMany(t);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await connectRows(page);
+  assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector('.topbar')).position), 'sticky');
+  const cardTop = await top(page, '#card .item');
+  const barH = await page.evaluate(() => document.querySelector('.topbar').getBoundingClientRect().height);
+  assert.ok(cardTop >= barH, '卡片在頂欄下方');
+  await page.evaluate(() => window.scrollTo(0, 600));
+  assert.ok(await page.evaluate(() => window.scrollY) > 0, '頁面確實有捲動');
+  assert.equal(await top(page, '.topbar'), 0);
+  assert.ok(Math.abs((await top(page, "#card .item")) - cardTop) <= 1, "卡片位置不變 before=" + cardTop + " after=" + (await top(page, "#card .item")));
+  assert.ok(await page.evaluate(() => document.querySelector('#card .item').getBoundingClientRect().bottom <= window.innerHeight));
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
+});
+
+test('桌機：卡片內容很長時，卡片自己可捲，頁面不被撐開', async (t) => {
+  const { page, api } = await open(t, { sample: false });
+  api.seed({ id: '6000', cat: '生活', url: 'https://news.tvbs.com.tw/local/6000', orig: '很長的小編文', created: api.st.now,
+    titles: [{ ver: 1, t: '標題', last: null, count: 0 }], note: '很長的小編文內容\n'.repeat(150) });
+  seedSample(api); seedMany(api, 25);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await connectRows(page);
+  assert.equal(await page.getAttribute('#card .item', 'data-id'), '6000');
+  const m = await page.evaluate(() => { const e = document.querySelector('#card .item'); return { sh: e.scrollHeight, ch: e.clientHeight, oy: getComputedStyle(e).overflowY, bottom: e.getBoundingClientRect().bottom, vh: window.innerHeight }; });
+  assert.ok(m.sh > m.ch, '內容比卡片高');
+  assert.equal(m.oy, 'auto');
+  assert.ok(m.bottom <= m.vh);
+});
+
+test('矮視窗的桌機寬度：卡片改為隨頁面捲動', async (t) => {
+  const { page } = await openMany(t);
+  await page.setViewportSize({ width: 1280, height: 450 });
+  await connectRows(page);
+  assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector('.pane-r')).position), 'static');
+});
+
+test('手機：頂欄只有圖示按鈕，搜尋點開才出現，點一列看卡片，返回回列表', async (t) => {
+  const { page } = await openMany(t);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await connectRows(page);
+  assert.equal(await page.locator('#settingsBtn .lbl').isHidden(), true);
+  assert.equal(await page.locator('#addBtn .lbl').isHidden(), true);
+  assert.ok(await page.locator('#settingsBtn .ico').isVisible());
+  assert.equal(await page.locator('#q').isHidden(), true);
+  await page.click('#searchBtn');
+  assert.ok(await page.locator('#q').isVisible());
+  assert.equal(await page.getAttribute('#searchBtn', 'aria-expanded'), 'true');
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'q');
+  await page.fill('#q', '標題 3');
+  assert.equal(await page.locator('.row').count(), 1);
+  await page.fill('#q', '');
+  await page.click('.row >> nth=0');
+  await page.waitForSelector('#card .item', { state: 'visible' });
+  await page.click('#card [data-act=back]');
+  assert.ok(await page.locator('.row').first().isVisible());
+  await page.click('#settingsBtn');
+  await page.waitForSelector('#settingsDlg[open]');
+  await page.keyboard.press('Escape');
+  await page.click('#addBtn');
+  await page.waitForSelector('#dlg[open]');
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
+});
+
+test('桌機：圖示隱藏、文字標籤顯示，搜尋框一直可見', async (t) => {
+  const { page } = await openMany(t);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await connectRows(page);
+  assert.ok(await page.locator('#settingsBtn .lbl').isVisible());
+  assert.equal(await page.locator('#settingsBtn .ico').isHidden(), true);
+  assert.equal(await page.locator('#searchBtn').isHidden(), true);
+  assert.ok(await page.locator('#q').isVisible());
+});
+
+test('鍵盤翻頁：按 Enter 換頁後焦點仍在分頁列內，且頁碼變動會被朗讀', async (t) => {
+  const { page } = await openMany(t);
+  await connectRows(page);
+  assert.equal(await page.getAttribute('#cnt', 'aria-live'), 'polite');
+  await page.focus('#pager [aria-label="下一頁"]');
+  await page.keyboard.press('Enter');
+  assert.equal(await cntText(page), '共 28 則・第 2／3 頁');
+  assert.equal(await page.evaluate(() => !!document.activeElement.closest('#pager')), true);
+  await page.keyboard.press('Enter');
+  assert.equal(await cntText(page), '共 28 則・第 3／3 頁');
+  assert.equal(await page.evaluate(() => !!document.activeElement.closest('#pager')), true);
+});
+
+for (const w of [834, 320]) {
+  test('窄視窗 ' + w + 'px：頂欄按鈕與展開的選項文字不斷行', async (t) => {
+    const { page } = await openMany(t);
+    await page.setViewportSize({ width: w, height: 800 });
+    await connectRows(page);
+    await page.click('#sortX .xsel-btn');
+    const h = await page.evaluate(() => {
+      const hs = (sel) => Math.max(...[...document.querySelectorAll(sel)].filter((e) => e.offsetParent).map((e) => e.getBoundingClientRect().height));
+      return { btn: hs('.tools .btn'), radio: hs('#sortX [role=radio]') };
+    });
+    assert.ok(h.btn <= 44, '頂欄按鈕高度 ' + h.btn);
+    assert.ok(h.radio <= 36, '選項高度 ' + h.radio);
+    const sw = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    const who = sw > 0 ? await page.evaluate(() => [...document.querySelectorAll('body *')].filter((e) => e.offsetParent && e.getBoundingClientRect().right > window.innerWidth + 0.5 && e.parentElement.getBoundingClientRect().right <= window.innerWidth + 0.5).map((e) => e.tagName + '#' + e.id + '.' + e.className + ' r=' + e.getBoundingClientRect().right).slice(0, 5)) : [];
+    const dbg = await page.evaluate(() => ['#sortX', '#sortX .xsel-opts', '#sortX .xsel-btn', '.ctl', '.sortrow', '.filters', '.pane-l', '.wrap'].map((q) => { const r = document.querySelector(q).getBoundingClientRect(); return q + ' ' + Math.round(r.left) + '-' + Math.round(r.right); }));
+    assert.ok(sw <= 0, '頁面橫向溢出 ' + sw + 'px ' + who.join(' | ') + ' // ' + dbg.join(' | '));
+  });
+}
