@@ -488,12 +488,13 @@ async function openMany(t, n = 25, opts = {}) {
   seedMany(r.api, n);
   return r;
 }
+async function connectRows(page, remember) { await connect(page, remember); await page.waitForSelector('.row'); }   // 彈窗關閉時列表可能還在載入
 const cntText = (page) => page.locator('#cnt').textContent();
 const rowIds = (page) => page.$$eval('.row', (els) => els.map((e) => e.dataset.id));
 
 test('分頁：預設每頁 10 則，顯示「第 p／P 頁」與分頁列；單頁時不顯示分頁列', async (t) => {
   const { page } = await openMany(t);
-  await connect(page);
+  await connectRows(page);
   assert.equal(await page.locator('.row').count(), 10);
   assert.equal(await cntText(page), '共 28 則・第 1／3 頁');
   assert.ok(await page.locator('#pager').isVisible());
@@ -501,14 +502,14 @@ test('分頁：預設每頁 10 則，顯示「第 p／P 頁」與分頁列；單
   assert.equal(await page.locator('#pager [data-page="0"]').isDisabled(), true);   // 首頁的「‹」
   assert.equal(await page.getAttribute('#pager [aria-current=page]', 'data-page'), '1');
   const r2 = await open(t);   // 只有 3 則樣本
-  await connect(r2.page);
+  await connectRows(r2.page);
   assert.equal(await r2.page.locator('#pager').isHidden(), true);
   assert.equal(await cntText(r2.page), '共 3 則・第 1／1 頁');
 });
 
 test('顯示則數：選項平時收合，點一下才展開，選完收合並生效', async (t) => {
   const { page } = await openMany(t);
-  await connect(page);
+  await connectRows(page);
   assert.equal(await page.locator('#sizeX .xsel-opts').isHidden(), true);
   assert.equal(await page.locator('#sortX .xsel-opts').isHidden(), true);
   assert.match(await page.locator('#sizeX .xsel-val').textContent(), /10 則/);
@@ -526,7 +527,7 @@ test('顯示則數：選項平時收合，點一下才展開，選完收合並�
 
 test('選擇器：Esc、點外面、展開另一個都會收合；方向鍵移動焦點', async (t) => {
   const { page } = await openMany(t);
-  await connect(page);
+  await connectRows(page);
   await page.click('#sizeX .xsel-btn');
   await page.keyboard.press('ArrowRight');
   assert.equal(await page.evaluate(() => document.activeElement.getAttribute('data-v')), '15');
@@ -545,7 +546,7 @@ test('選擇器：Esc、點外面、展開另一個都會收合；方向鍵移�
 
 test('排序選擇器：改成「最近用」「次數」後列表順序改變，並回到第 1 頁', async (t) => {
   const { page } = await openMany(t);
-  await connect(page);
+  await connectRows(page);
   await page.click('#pager [data-page="2"]');
   await page.click('#sortX .xsel-btn');
   await page.click('#sortX [data-v="recent"]');
@@ -562,7 +563,7 @@ test('排序選擇器：改成「最近用」「次數」後列表順序改變�
 
 test('顯示則數：重新整理後仍保留；localStorage 壞值或不能用時回到 10 且頁面照常', async (t) => {
   const { page } = await openMany(t);
-  await connect(page, true);
+  await connectRows(page, true);
   await page.click('#sizeX .xsel-btn');
   await page.click('#sizeX [data-v="15"]');
   assert.equal(await page.evaluate(() => localStorage.getItem('hottopic.pageSize')), '15');
@@ -574,7 +575,7 @@ test('顯示則數：重新整理後仍保留；localStorage 壞值或不能用�
 
 test('顯示則數：儲存值是壞的（7）→ 10', async (t) => {
   const { page } = await openMany(t, 25, { init: () => { if (!sessionStorage.getItem('s')) { sessionStorage.setItem('s', '1'); localStorage.setItem('hottopic.pageSize', '7'); } } });
-  await connect(page);
+  await connectRows(page);
   assert.equal(await page.locator('.row').count(), 10);
   assert.match(await page.locator('#sizeX .xsel-val').textContent(), /10 則/);
 });
@@ -585,7 +586,7 @@ test('顯示則數：localStorage 讀寫該鍵都丟例外 → 仍是 10、切�
     Storage.prototype.getItem = function (k) { if (k === 'hottopic.pageSize') throw new Error('denied'); return g.apply(this, arguments); };
     Storage.prototype.setItem = function (k) { if (k === 'hottopic.pageSize') throw new Error('denied'); return s.apply(this, arguments); };
   } });
-  await connect(page);
+  await connectRows(page);
   assert.equal(await page.locator('.row').count(), 10);
   await page.click('#sizeX .xsel-btn');
   await page.click('#sizeX [data-v="20"]');
@@ -594,7 +595,7 @@ test('顯示則數：localStorage 讀寫該鍵都丟例外 → 仍是 10、切�
 
 test('翻頁與回到第 1 頁：選中該頁第一則；換分類、搜尋、排序、則數都回第 1 頁', async (t) => {
   const { page } = await openMany(t);
-  await connect(page);
+  await connectRows(page);
   await page.evaluate(() => window.scrollTo(0, 300));
   await page.click('#pager [data-page="2"]');
   assert.match(await cntText(page), /第 2／3 頁/);
@@ -616,7 +617,7 @@ test('翻頁與回到第 1 頁：選中該頁第一則；換分類、搜尋、�
 
 test('標記已使用讓新聞排到別頁：頁碼跟著跳，列表選中列與卡片一致', async (t) => {
   const { page } = await openMany(t);
-  await connect(page);
+  await connectRows(page);
   assert.equal(await page.getAttribute('.row[aria-selected=true]', 'data-id'), '4031880');
   const card = page.locator('#card .item');
   await card.locator('[data-act=mark]').click();
@@ -629,7 +630,7 @@ test('標記已使用讓新聞排到別頁：頁碼跟著跳，列表選中列�
 
 test('刪光最後一頁的新聞：頁碼夾回前一頁、不出現空白頁', async (t) => {
   const { page } = await openMany(t, 21);   // 3 + 21 = 24 則，每頁 10 → 3 頁，最後一頁 4 則
-  await connect(page);
+  await connectRows(page);
   await page.click('#pager [data-page="3"]');
   assert.equal(await page.locator('.row').count(), 4);
   for (let i = 0; i < 4; i++) {
@@ -645,7 +646,7 @@ test('刪光最後一頁的新聞：頁碼夾回前一頁、不出現空白頁',
 test('沒有結果、載入前：不顯示分頁列，計數不帶頁碼', async (t) => {
   const { page } = await openMany(t);
   assert.equal(await page.locator('#pager').isHidden(), true);   // 尚未連線
-  await connect(page);
+  await connectRows(page);
   await page.fill('#q', '(');
   assert.match(await page.locator('#list').textContent(), /沒有符合的新聞/);
   assert.equal(await page.locator('#pager').isHidden(), true);
@@ -654,7 +655,7 @@ test('沒有結果、載入前：不顯示分頁列，計數不帶頁碼', async
 
 test('選擇器展開時開啟設定：選擇器收合，Esc 可關閉彈窗', async (t) => {
   const { page } = await openMany(t);
-  await connect(page);
+  await connectRows(page);
   await page.click('#sortX .xsel-btn');
   assert.ok(await page.locator('#sortX .xsel-opts').isVisible());
   await page.evaluate(() => document.getElementById('settingsBtn').click());
