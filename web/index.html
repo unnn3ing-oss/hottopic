@@ -30,15 +30,20 @@
           <div class="chips" id="chips"></div>
           <div class="sortrow">
             <span id="cnt"></span>
-            <select id="sort" aria-label="排序">
-              <option value="oldest">最久未用優先</option>
-              <option value="recent">最近使用優先</option>
-              <option value="count">使用次數多到少</option>
-              <option value="created">最新新增</option>
-            </select>
+            <div class="ctl">
+              <div class="xsel" id="sortX">
+                <button type="button" class="xsel-btn" aria-haspopup="true" aria-expanded="false"><span class="xsel-lbl">排序</span><span class="xsel-val"></span><span class="xsel-caret" aria-hidden="true">▾</span></button>
+                <div class="xsel-opts" role="radiogroup" aria-label="排序" hidden></div>
+              </div>
+              <div class="xsel" id="sizeX">
+                <button type="button" class="xsel-btn" aria-haspopup="true" aria-expanded="false"><span class="xsel-lbl">顯示</span><span class="xsel-val"></span><span class="xsel-caret" aria-hidden="true">▾</span></button>
+                <div class="xsel-opts" role="radiogroup" aria-label="顯示則數" hidden></div>
+              </div>
+            </div>
           </div>
         </div>
         <div class="rows" id="list" role="listbox" aria-label="新聞列表"></div>
+        <nav class="pager" id="pager" aria-label="分頁" hidden></nav>
       </section>
       <section class="pane-r"><div id="card"></div></section>
     </div>

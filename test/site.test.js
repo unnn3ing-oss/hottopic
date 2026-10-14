@@ -6,7 +6,7 @@ const path = require('node:path');
 const { buildSite } = require('../scripts/build-site.js');
 
 const CSP = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src https://*.workers.dev; img-src 'self' data:; base-uri 'none'; form-action 'none'";
-const IDS = ['settingsBtn', 'addBtn', 'q', 'sort', 'chips', 'cnt', 'list', 'card', 'settingsDlg', 'settingsForm', 'sUrl', 'sToken',
+const IDS = ['settingsBtn', 'addBtn', 'q', 'sortX', 'sizeX', 'pager', 'chips', 'cnt', 'list', 'card', 'settingsDlg', 'settingsForm', 'sUrl', 'sToken',
   'sRemember', 'sMsg', 'sSteps', 'sClear', 'sSave', 'dlg', 'form', 'dlgTitle', 'fUrl', 'idHint', 'fCat', 'fOrig',
   'titleHint', 'vars', 'addVar', 'fNote', 'err', 'del', 'cancel', 'save', 'toast'];
 
@@ -49,8 +49,8 @@ test('沒有行內 script/style/事件屬性，資源皆為相對路徑並帶 ?v
 test('DOM 契約的 id 都存在，排序選項值正確', () => {
   for (const id of IDS) assert.match(html, new RegExp('\\sid="' + id + '"'), id);
   assert.match(html, /<input[^>]*id="sToken"[^>]*type="password"|<input[^>]*type="password"[^>]*id="sToken"/);
-  const sort = /<select[^>]*id="sort"[\s\S]*?<\/select>/.exec(html)[0];
-  assert.deepEqual([...sort.matchAll(/value="([^"]+)"/g)].map((m) => m[1]), ['oldest', 'recent', 'count', 'created']);
+  const appJs = read('app.js');
+  for (const v of ['oldest', 'recent', 'count', 'created']) assert.match(appJs, new RegExp("\\['" + v + "', '"));
 });
 
 test('app.css 沒有 @import / @font-face / url(', () => {
