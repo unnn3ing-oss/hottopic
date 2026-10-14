@@ -353,13 +353,14 @@ test('新增：依網址自動選分類；手動改過分類就不再覆蓋', as
 // ---- 送到套版：用假的橋接取代真的 Chrome 擴充功能（真實擴充功能只能在 Chrome 實機驗證，見 docs/manual-checklist.md）----
 const FAKE_BRIDGE = () => {
   window.__sent = [];
-  window.__bridgeMode = 'opened';   // 'opened' | 'not_opened' | 'rejected' | 'silent'
+  window.__bridgeMode = 'opened';   // 'opened' | 'not_opened' | 'silent'，或下面 __errors 的 key（ok:false）
+  window.__errors = { rejected: 'bad_url', bad_title: 'bad_title', unavailable: 'extension_unavailable' };
   window.addEventListener('message', (e) => {
     const d = e.data;
     if (e.source !== window || !d || d.source !== 'hottopic' || d.type !== 'send-to-quickpattern') return;
     window.__sent.push(d);
     if (window.__bridgeMode === 'silent') return;
-    window.postMessage({ source: 'quickpattern', type: 'ack', nonce: d.nonce, ok: window.__bridgeMode !== 'rejected', opened: window.__bridgeMode === 'opened', error: window.__bridgeMode === 'rejected' ? 'bad_url' : undefined }, location.origin);
+    window.postMessage({ source: 'quickpattern', type: 'ack', nonce: d.nonce, ok: !window.__errors[window.__bridgeMode], opened: window.__bridgeMode === 'opened', error: window.__errors[window.__bridgeMode] }, location.origin);
   });
 };
 const toastText = (page) => page.evaluate(() => document.getElementById('toast').textContent);
@@ -453,4 +454,23 @@ test('送到套版：擴充功能拒絕這個網址 → 另外提示原因，並
   await page.click('#card [data-act=qpt]');
   await waitToast(page, '套版擴充功能不接受這個網址（只收 tvbs.com.tw），已複製網址');
   assert.equal(await clip(page), 'https://news.tvbs.com.tw/cars/4032757');
+});
+
+test('送到套版：擴充功能剛更新、內容腳本失效（extension_unavailable）→ 提示重新整理本頁，不能說成網址被拒', async (t) => {
+  const { page } = await open(t, { init: FAKE_BRIDGE });
+  await connect(page);
+  await pick(page, '4032757');
+  await page.evaluate(() => { window.__bridgeMode = 'unavailable'; });
+  await page.click('#card [data-act=qpt]');
+  await waitToast(page, '套版擴充功能連不上（可能剛更新過），請重新整理本頁再試，已複製網址');
+  assert.equal(await clip(page), 'https://news.tvbs.com.tw/cars/4032757');
+});
+
+test('送到套版：改標被拒（bad_title）→ 提示改標的問題，不是網址', async (t) => {
+  const { page } = await open(t, { init: FAKE_BRIDGE });
+  await connect(page);
+  await pick(page, '4032757');
+  await page.evaluate(() => { window.__bridgeMode = 'bad_title'; });
+  await page.click('#card [data-act=qpt]');
+  await waitToast(page, '套版擴充功能不接受這個改標（超過 500 字或沒有內容），已複製網址');
 });

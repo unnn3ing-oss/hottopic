@@ -19,7 +19,7 @@
 | 項目 | 決定 |
 |---|---|
 | 做法 | 只做擴充功能這條路；網頁版套版不動（網頁沒有 CORS 豁免，抓不到文章圖） |
-| 圖上標題 | **用卡片目前顯示的改標**；換行規則沿用擴充功能現有的 `breakTitle`。圖片、圖說、hashtag 仍由快速產圖自動抓 |
+| 圖上標題 | **用卡片目前顯示的改標**；改標有分行（`\n`）就照小編排好的分行，單行改標才用擴充功能現有的 `breakTitle` 換行（審查後修訂）。圖片、圖說、hashtag 仍由快速產圖自動抓 |
 | 自動程度 | 自動執行快速產圖到「直接下載」待確認；不自動下載 |
 | 通道 | 擴充功能新增橋接內容腳本，只注入熱門新聞庫頁面；不需要擴充功能 ID，不經過 Worker 或 Apps Script |
 | 備案 | 側邊欄沒開且 Chrome 不允許自動打開時，暫存請求並在圖示顯示提示，使用者點圖示後自動處理 |
@@ -51,13 +51,13 @@ background.js ── 驗證 sender ── 存 chrome.storage.session.pending ─
 | `v` | 協定版本，目前 `1` |
 | `nonce` | 隨機字串，用來配對回覆 |
 | `url` | 新聞網址 |
-| `title` | 卡片目前顯示的改標（單行純文字，可省略） |
+| `title` | 卡片目前顯示的改標（純文字，可含換行，可省略） |
 
 **bridge → 頁面**（`window.postMessage(ack, location.origin)`）：`{source:'quickpattern', type:'ack', nonce, ok:boolean, opened:boolean, error?:string}`。
 
 **驗證規則（bridge 與 background 各做一次）**
 - `url`：長度 ≤ 2000；`new URL()` 可解析；協定必須是 `https:`；主機名等於 `tvbs.com.tw` 或以 `.tvbs.com.tw` 結尾；不含帳密。
-- `title`：若有，必須是字串，長度 ≤ 200，去掉控制字元後非空。
+- `title`：若有，必須是字串，長度 ≤ 500（與改標上限一致），換行保留（行首尾空白與空行去掉）、Tab 轉空格、去掉其他控制字元後非空。
 - 不合規：回 `ok:false`、不暫存、不打開側邊欄。
 - bridge 只處理 `event.source === window`、`event.origin === location.origin` 且 `source`/`type` 相符的訊息。
 - background 只接受 `sender.id` 為自己，且 `sender.url` 的 origin 是 `https://unnn3ing-oss.github.io`、路徑以 `/hottopic/` 開頭。

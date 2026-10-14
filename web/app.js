@@ -421,7 +421,13 @@
     HotNewsQpt.send({ win: window, item: it, pos: p, nonce: qptNonce() }).then(function (r) {
       if (r.status === 'opened') toast('已送到套版');
       else if (r.status === 'not_opened') toast('已傳給套版，請點一下工具列圖示打開側邊欄');
-      else if (r.status === 'rejected') copyText(it.url, '套版擴充功能不接受這個網址（只收 tvbs.com.tw），已複製網址');
+      else if (r.status === 'rejected') {
+        // 依原因分流：只有網址被拒才說網址；擴充功能剛更新、內容腳本失效時要請使用者重新整理
+        var why = r.error === 'bad_url' ? '套版擴充功能不接受這個網址（只收 tvbs.com.tw），已複製網址'
+          : r.error === 'bad_title' ? '套版擴充功能不接受這個改標（超過 500 字或沒有內容），已複製網址'
+          : '套版擴充功能連不上（可能剛更新過），請重新整理本頁再試，已複製網址';
+        copyText(it.url, why);
+      }
       else copyText(it.url, '沒偵測到套版擴充功能（需 v4.50 以上，並重新整理本頁），已複製網址');
     });
   }
