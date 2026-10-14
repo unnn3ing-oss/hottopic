@@ -6,7 +6,8 @@ const { execFileSync } = require('node:child_process');
 const ROOT = path.join(__dirname, '..');
 const FILES = [
   ['web/index.html', 'index.html'], ['web/app.css', 'app.css'], ['web/app.js', 'app.js'],
-  ['web/api.js', 'api.js'], ['web/qpt.js', 'qpt.js'], ['web/paging.js', 'paging.js'], ['apps-script/lib.js', 'lib.js']
+  ['web/api.js', 'api.js'], ['web/qpt.js', 'qpt.js'], ['web/paging.js', 'paging.js'], ['apps-script/lib.js', 'lib.js'],
+  ['web/favicon.svg', 'favicon.svg'], ['web/favicon-32.png', 'favicon-32.png'], ['web/apple-touch-icon.png', 'apple-touch-icon.png']
 ];
 
 function resolveSha(sha) {
@@ -23,7 +24,7 @@ function buildSite(opts) {
   for (const [from, to] of FILES) {
     let data = fs.readFileSync(path.join(ROOT, from));
     if (to === 'index.html') {
-      data = data.toString('utf8').replace(/(href|src)="(app\.css|lib\.js|api\.js|qpt\.js|paging\.js|app\.js)"/g, '$1="$2?v=' + v + '"');
+      data = data.toString('utf8').replace(/(href|src)="(app\.css|lib\.js|api\.js|qpt\.js|paging\.js|app\.js|favicon\.svg|favicon-32\.png|apple-touch-icon\.png)"/g, '$1="$2?v=' + v + '"');
     }
     fs.writeFileSync(path.join(outDir, to), data);
   }

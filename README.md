@@ -21,7 +21,7 @@ Cloudflare Worker（worker/index.js）── 驗憑證，加上 API_TOKEN ──
 
 | 路徑 | 內容 |
 |---|---|
-| `web/` | `index.html`、`app.css`、`app.js`（畫面與互動）、`api.js`（連線層）、`qpt.js`（送到套版）、`paging.js`（分頁純函式） |
+| `web/` | `index.html`、`app.css`、`app.js`（畫面與互動）、`api.js`（連線層）、`qpt.js`（送到套版）、`paging.js`（分頁純函式）、`favicon.svg`／`favicon-32.png`／`apple-touch-icon.png`（網頁圖示） |
 | `apps-script/lib.js` | 網頁、Apps Script、測試共用的純函式（編號、網址檢查、文字整理、留言組合） |
 | `apps-script/` 其餘 | `Code.gs`、`appsscript.json` 與標題抽取 |
 | `worker/` | `index.js`（Cloudflare Worker：登入、憑證、轉送）、`package.json`（讓 Node 以 ES module 載入，只給測試用） |
@@ -37,7 +37,7 @@ Cloudflare Worker（worker/index.js）── 驗憑證，加上 API_TOKEN ──
 
 1. 把功能分支經 PR 併入 `main`（**併入 `main` 才算正式發布**；PR 只跑測試，不部署）。
 2. GitHub repo → Settings → Pages → **Source 選「GitHub Actions」**。
-3. `main` 收到推送後，`pages.yml` 會依序：測試 → 建置 `_site/`（七個檔）→ 部署。約 1–10 分鐘生效，網址 `https://unnn3ing-oss.github.io/hottopic/`。
+3. `main` 收到推送後，`pages.yml` 會依序：測試 → 建置 `_site/`（十個檔）→ 部署。約 1–10 分鐘生效，網址 `https://unnn3ing-oss.github.io/hottopic/`。
 
 ### 後端部署（約 10 分鐘，一次性）
 

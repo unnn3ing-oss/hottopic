@@ -16,9 +16,9 @@ const built = buildSite({ outDir: out, sha });
 const read = (f) => fs.readFileSync(path.join(out, f), 'utf8');
 const html = read('index.html');
 
-test('輸出恰為七個檔，lib.js 與 apps-script/lib.js 相同', () => {
-  assert.deepEqual(fs.readdirSync(out).sort(), ['api.js', 'app.css', 'app.js', 'index.html', 'lib.js', 'paging.js', 'qpt.js']);
-  assert.deepEqual(built.files.slice().sort(), ['api.js', 'app.css', 'app.js', 'index.html', 'lib.js', 'paging.js', 'qpt.js']);
+test('輸出恰為十個檔，lib.js 與 apps-script/lib.js 相同', () => {
+  assert.deepEqual(fs.readdirSync(out).sort(), ['api.js', 'app.css', 'app.js', 'apple-touch-icon.png', 'favicon-32.png', 'favicon.svg', 'index.html', 'lib.js', 'paging.js', 'qpt.js']);
+  assert.deepEqual(built.files.slice().sort(), ['api.js', 'app.css', 'app.js', 'apple-touch-icon.png', 'favicon-32.png', 'favicon.svg', 'index.html', 'lib.js', 'paging.js', 'qpt.js']);
   assert.ok(fs.readFileSync(path.join(out, 'lib.js')).equals(fs.readFileSync(path.join(__dirname, '..', 'apps-script', 'lib.js'))));
 });
 
@@ -39,11 +39,27 @@ test('沒有行內 script/style/事件屬性，資源皆為相對路徑並帶 ?v
   assert.doesNotMatch(html, /\son\w+=/i);
   for (const m of html.matchAll(/<script\b[^>]*>/gi)) assert.match(m[0], /\ssrc="/);
   const refs = [...html.matchAll(/\s(?:src|href)="([^"]*)"/gi)].map((m) => m[1]).filter((v) => v !== 'data:,');
-  assert.equal(refs.length, 6, refs.join(','));
-  for (const r of refs) assert.match(r, /^(app\.css|lib\.js|api\.js|qpt\.js|paging\.js|app\.js)\?v=abcdef012345$/);
+  assert.equal(refs.length, 9, refs.join(','));
+  for (const r of refs) assert.match(r, /^(app\.css|lib\.js|api\.js|qpt\.js|paging\.js|app\.js|favicon\.svg|favicon-32\.png|apple-touch-icon\.png)\?v=abcdef012345$/);
   assert.doesNotMatch(html, /(?:src|href|action)="(?:https?:)?\/\//i);
   const order = refs.filter((r) => r.endsWith('.js') || /\.js\?/.test(r)).map((r) => r.split('?')[0]);
   assert.deepEqual(order, ['lib.js', 'api.js', 'qpt.js', 'paging.js', 'app.js']);
+});
+
+test('網頁圖示：SVG 主圖示＋32px PNG 備援＋apple-touch-icon，且檔案真實存在、SVG 不依賴字型', () => {
+  assert.match(html, /<link rel="icon" type="image\/svg\+xml" href="favicon\.svg\?v=abcdef012345">/);
+  assert.match(html, /<link rel="icon" type="image\/png" sizes="32x32" href="favicon-32\.png\?v=abcdef012345">/);
+  assert.match(html, /<link rel="apple-touch-icon" href="apple-touch-icon\.png\?v=abcdef012345">/);
+  const svg = read('favicon.svg');
+  assert.match(svg, /^<svg\b[^>]*viewBox="0 0 64 64"/);
+  assert.doesNotMatch(svg, /<text|font-family|<script|\son\w+=/i);
+  for (const f of ['favicon-32.png', 'apple-touch-icon.png']) {
+    const b = fs.readFileSync(path.join(out, f));
+    assert.equal(b.subarray(1, 4).toString('latin1'), 'PNG', f);
+  }
+  const dim = (f) => { const b = fs.readFileSync(path.join(out, f)); return [b.readUInt32BE(16), b.readUInt32BE(20)]; };
+  assert.deepEqual(dim('favicon-32.png'), [32, 32]);
+  assert.deepEqual(dim('apple-touch-icon.png'), [180, 180]);
 });
 
 test('DOM 契約的 id 都存在，排序選項值正確', () => {
