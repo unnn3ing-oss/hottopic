@@ -280,8 +280,13 @@
   $('pager').addEventListener('click', function (e) {
     var b = e.target.closest('button[data-page]');
     if (!b || b.disabled) return;
+    var label = b.getAttribute('aria-label');
     goView(+b.getAttribute('data-page'));
     window.scrollTo(0, 0);
+    // renderPager 會換掉整排按鈕；鍵盤翻頁要把焦點放回同一顆（上／下一頁；到頭了就落在目前頁），不然會掉到 body
+    var again = [].filter.call($('pager').querySelectorAll('button'), function (x) { return x.getAttribute('aria-label') === label && !x.disabled; })[0]
+      || $('pager').querySelector('button[aria-current]');
+    if (again) again.focus({ preventScroll: true });
   });
 
   /* ---------- 展開式選擇器（排序、顯示則數） ---------- */

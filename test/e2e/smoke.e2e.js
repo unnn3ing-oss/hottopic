@@ -101,7 +101,7 @@ test('勾記住：重新整理後不用輸入密碼；儲存內容不含密碼�
     if (!sessionStorage.getItem('seeded')) { sessionStorage.setItem('seeded', '1'); localStorage.setItem('hotnews.v1.token', 'old-password'); }
   } });
   await page.waitForSelector('#settingsDlg[open]');
-  await connect(page, true);
+  await connectRows(page, true);
   assert.equal(await page.locator('.row').count(), 3);
   await page.reload();
   await page.waitForSelector('.row');
@@ -119,7 +119,7 @@ test('憑證在伺服器端失效 → 下一次操作跳出設定並提示登入
   await page.click('#card [data-act=mark]');
   await page.waitForSelector('#settingsDlg[open]');
   assert.match(await page.locator('#sMsg').textContent(), /登入已過期/);
-  await connect(page);
+  await connectRows(page);
   assert.equal(await page.locator('.row').count(), 3);
 });
 
@@ -741,3 +741,35 @@ test('桌機：圖示隱藏、文字標籤顯示，搜尋框一直可見', async
   assert.equal(await page.locator('#searchBtn').isHidden(), true);
   assert.ok(await page.locator('#q').isVisible());
 });
+
+test('鍵盤翻頁：按 Enter 換頁後焦點仍在分頁列內，且頁碼變動會被朗讀', async (t) => {
+  const { page } = await openMany(t);
+  await connectRows(page);
+  assert.equal(await page.getAttribute('#cnt', 'aria-live'), 'polite');
+  await page.focus('#pager [aria-label="下一頁"]');
+  await page.keyboard.press('Enter');
+  assert.equal(await cntText(page), '共 28 則・第 2／3 頁');
+  assert.equal(await page.evaluate(() => !!document.activeElement.closest('#pager')), true);
+  await page.keyboard.press('Enter');
+  assert.equal(await cntText(page), '共 28 則・第 3／3 頁');
+  assert.equal(await page.evaluate(() => !!document.activeElement.closest('#pager')), true);
+});
+
+for (const w of [834, 320]) {
+  test('窄視窗 ' + w + 'px：頂欄按鈕與展開的選項文字不斷行', async (t) => {
+    const { page } = await openMany(t);
+    await page.setViewportSize({ width: w, height: 800 });
+    await connectRows(page);
+    await page.click('#sortX .xsel-btn');
+    const h = await page.evaluate(() => {
+      const hs = (sel) => Math.max(...[...document.querySelectorAll(sel)].filter((e) => e.offsetParent).map((e) => e.getBoundingClientRect().height));
+      return { btn: hs('.tools .btn'), radio: hs('#sortX [role=radio]') };
+    });
+    assert.ok(h.btn <= 44, '頂欄按鈕高度 ' + h.btn);
+    assert.ok(h.radio <= 36, '選項高度 ' + h.radio);
+    const sw = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    const who = sw > 0 ? await page.evaluate(() => [...document.querySelectorAll('body *')].filter((e) => e.offsetParent && e.getBoundingClientRect().right > window.innerWidth + 0.5 && e.parentElement.getBoundingClientRect().right <= window.innerWidth + 0.5).map((e) => e.tagName + '#' + e.id + '.' + e.className + ' r=' + e.getBoundingClientRect().right).slice(0, 5)) : [];
+    const dbg = await page.evaluate(() => ['#sortX', '#sortX .xsel-opts', '#sortX .xsel-btn', '.ctl', '.sortrow', '.filters', '.pane-l', '.wrap'].map((q) => { const r = document.querySelector(q).getBoundingClientRect(); return q + ' ' + Math.round(r.left) + '-' + Math.round(r.right); }));
+    assert.ok(sw <= 0, '頁面橫向溢出 ' + sw + 'px ' + who.join(' | ') + ' // ' + dbg.join(' | '));
+  });
+}
