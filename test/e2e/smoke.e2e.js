@@ -664,3 +664,80 @@ test('選擇器展開時開啟設定：選擇器收合，Esc 可關閉彈窗', a
   await page.keyboard.press('Escape');
   await page.waitForSelector('#settingsDlg', { state: 'hidden' });
 });
+
+/* ---------- 版面：固定頂欄、固定右側卡片、手機圖示按鈕 ---------- */
+const top = (page, sel) => page.evaluate((s) => document.querySelector(s).getBoundingClientRect().top, sel);
+
+test('桌機：往下捲動時頂欄固定在最上方、右側卡片不動', async (t) => {
+  const { page } = await openMany(t);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await connectRows(page);
+  assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector('.topbar')).position), 'sticky');
+  const cardTop = await top(page, '#card .item');
+  const barH = await page.evaluate(() => document.querySelector('.topbar').getBoundingClientRect().height);
+  assert.ok(cardTop >= barH, '卡片在頂欄下方');
+  await page.evaluate(() => window.scrollTo(0, 600));
+  assert.ok(await page.evaluate(() => window.scrollY) > 0, '頁面確實有捲動');
+  assert.equal(await top(page, '.topbar'), 0);
+  assert.ok(Math.abs((await top(page, "#card .item")) - cardTop) <= 1, "卡片位置不變 before=" + cardTop + " after=" + (await top(page, "#card .item")));
+  assert.ok(await page.evaluate(() => document.querySelector('#card .item').getBoundingClientRect().bottom <= window.innerHeight));
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
+});
+
+test('桌機：卡片內容很長時，卡片自己可捲，頁面不被撐開', async (t) => {
+  const { page, api } = await open(t, { sample: false });
+  api.seed({ id: '6000', cat: '生活', url: 'https://news.tvbs.com.tw/local/6000', orig: '很長的小編文', created: api.st.now,
+    titles: [{ ver: 1, t: '標題', last: null, count: 0 }], note: '很長的小編文內容\n'.repeat(150) });
+  seedSample(api); seedMany(api, 25);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await connectRows(page);
+  assert.equal(await page.getAttribute('#card .item', 'data-id'), '6000');
+  const m = await page.evaluate(() => { const e = document.querySelector('#card .item'); return { sh: e.scrollHeight, ch: e.clientHeight, oy: getComputedStyle(e).overflowY, bottom: e.getBoundingClientRect().bottom, vh: window.innerHeight }; });
+  assert.ok(m.sh > m.ch, '內容比卡片高');
+  assert.equal(m.oy, 'auto');
+  assert.ok(m.bottom <= m.vh);
+});
+
+test('矮視窗的桌機寬度：卡片改為隨頁面捲動', async (t) => {
+  const { page } = await openMany(t);
+  await page.setViewportSize({ width: 1280, height: 450 });
+  await connectRows(page);
+  assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector('.pane-r')).position), 'static');
+});
+
+test('手機：頂欄只有圖示按鈕，搜尋點開才出現，點一列看卡片，返回回列表', async (t) => {
+  const { page } = await openMany(t);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await connectRows(page);
+  assert.equal(await page.locator('#settingsBtn .lbl').isHidden(), true);
+  assert.equal(await page.locator('#addBtn .lbl').isHidden(), true);
+  assert.ok(await page.locator('#settingsBtn .ico').isVisible());
+  assert.equal(await page.locator('#q').isHidden(), true);
+  await page.click('#searchBtn');
+  assert.ok(await page.locator('#q').isVisible());
+  assert.equal(await page.getAttribute('#searchBtn', 'aria-expanded'), 'true');
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'q');
+  await page.fill('#q', '標題 3');
+  assert.equal(await page.locator('.row').count(), 1);
+  await page.fill('#q', '');
+  await page.click('.row >> nth=0');
+  await page.waitForSelector('#card .item', { state: 'visible' });
+  await page.click('#card [data-act=back]');
+  assert.ok(await page.locator('.row').first().isVisible());
+  await page.click('#settingsBtn');
+  await page.waitForSelector('#settingsDlg[open]');
+  await page.keyboard.press('Escape');
+  await page.click('#addBtn');
+  await page.waitForSelector('#dlg[open]');
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
+});
+
+test('桌機：圖示隱藏、文字標籤顯示，搜尋框一直可見', async (t) => {
+  const { page } = await openMany(t);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await connectRows(page);
+  assert.ok(await page.locator('#settingsBtn .lbl').isVisible());
+  assert.equal(await page.locator('#settingsBtn .ico').isHidden(), true);
+  assert.equal(await page.locator('#searchBtn').isHidden(), true);
+  assert.ok(await page.locator('#q').isVisible());
+});

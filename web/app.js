@@ -583,6 +583,16 @@
     goView();
   });
   $('q').addEventListener('input', function (e) { state.q = e.target.value; goView(); });
+  // 手機：搜尋框平時收起，點頂欄的放大鏡才出現
+  function setSearching(on) {
+    document.body.classList.toggle('searching', on);
+    $('searchBtn').setAttribute('aria-expanded', String(on));
+    if (on) $('q').focus();
+  }
+  function syncSearchBtn() { $('searchBtn').classList.toggle('on', !!$('q').value); }
+  $('searchBtn').addEventListener('click', function () { setSearching(!document.body.classList.contains('searching')); });
+  $('q').addEventListener('input', syncSearchBtn);
+  if (MOBILE.addEventListener) MOBILE.addEventListener('change', function (e) { if (!e.matches) setSearching(false); });
   $('addBtn').addEventListener('click', function () { openDialog(null); });
   $('settingsBtn').addEventListener('click', function () { openSettings(); });
 
