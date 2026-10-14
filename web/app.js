@@ -212,6 +212,7 @@
       h('div', { class: 'acts' },
         h('button', { type: 'button', class: 'btn', 'data-act': 'ctitle', disabled: !n || state.busy.has(it.id) }, '複製標題'),
         h('button', { type: 'button', class: 'btn', 'data-act': 'cnote' }, '複製留言'),
+        h('button', { type: 'button', class: 'btn', 'data-act': 'qpt', disabled: !it.url }, '送到套版'),
         h('button', { type: 'button', class: 'btn primary' + (confirming ? ' confirm' : ''), 'data-act': 'mark', disabled: state.busy.has(it.id) }, markLabel(confirming, n, p)),
         h('button', { type: 'button', class: 'btn', 'data-act': 'edit' }, '編輯')));
   }
@@ -402,12 +403,34 @@
         var c = state.copied;
         if (c && c.id === id) { state.copied = null; autoMark(c); }   // 先複製標題、再複製同一篇的留言 → 視為已使用
       });
-    } else if (act === 'edit') openDialog(it);
+    } else if (act === 'qpt') sendToQpt(it, p);
+    else if (act === 'edit') openDialog(it);
     else if (act === 'prev' || act === 'next' || act === 'dot') {
       var car = itemEl.querySelector('.car');
       if (car) goTo(car, act === 'dot' ? +b.getAttribute('data-i') : p + (act === 'next' ? 1 : -1));
     } else if (act === 'mark') markUsed(it, b, p);
   });
+
+  // 把網址與目前顯示的改標交給 Chrome 擴充功能「圖片套版產生器」；不改任何資料、不標記已使用
+  function qptNonce() {
+    var a = new Uint8Array(8);
+    crypto.getRandomValues(a);
+    return Array.prototype.map.call(a, function (b) { return (b < 16 ? '0' : '') + b.toString(16); }).join('');
+  }
+  function sendToQpt(it, p) {
+    HotNewsQpt.send({ win: window, item: it, pos: p, nonce: qptNonce() }).then(function (r) {
+      if (r.status === 'opened') toast('已送到套版');
+      else if (r.status === 'not_opened') toast('已傳給套版，請點一下工具列圖示打開側邊欄');
+      else if (r.status === 'rejected') {
+        // 依原因分流：只有網址被拒才說網址；擴充功能剛更新、內容腳本失效時要請使用者重新整理
+        var why = r.error === 'bad_url' ? '套版擴充功能不接受這個網址（只收 tvbs.com.tw），已複製網址'
+          : r.error === 'bad_title' ? '套版擴充功能不接受這個改標（超過 500 字或沒有內容），已複製網址'
+          : '套版擴充功能連不上（可能剛更新過），請重新整理本頁再試，已複製網址';
+        copyText(it.url, why);
+      }
+      else copyText(it.url, '沒偵測到套版擴充功能（需 v4.50 以上，並重新整理本頁），已複製網址');
+    });
+  }
 
   // 實際送出「已使用」。lead：提示文字的開頭（手動：已；複製留言觸發：已複製留言，並）
   function doMark(it, p, lead) {
