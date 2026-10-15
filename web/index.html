@@ -89,6 +89,21 @@
     <div class="hint" id="titleHint"></div>
     <div id="vars"></div>
     <button class="btn" type="button" id="addVar">＋ 新增一個改標</button>
+    <fieldset id="usedBox">
+      <legend>使用狀態</legend>
+      <label class="check"><input type="radio" name="used" id="fUsed0" value="0" checked> <span>未使用</span></label>
+      <label class="check"><input type="radio" name="used" id="fUsed1" value="1"> <span>已使用過（例如同事已經發過）</span></label>
+      <label id="lastRow" hidden>上次使用時間
+        <input type="datetime-local" id="fLast">
+      </label>
+    </fieldset>
+    <div class="exprow">
+      <label>到期日（選填，到期當天起移到「已到期」）
+        <input type="date" id="fExp">
+      </label>
+      <button class="btn small" type="button" id="fExpClear">清除</button>
+    </div>
+    <div class="hint warn" id="expHint" hidden></div>
     <label>小編文（整則新聞共用）
       <textarea id="fNote" maxlength="5000"></textarea>
     </label>

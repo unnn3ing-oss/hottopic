@@ -4,7 +4,8 @@ const DAY = 864e5;
 
 function createFakeApi(opts = {}) {
   const st = { now: opts.now || Date.UTC(2026, 9, 12, 4, 0, 0), items: [], cats: ['社會', '生活', '健康', '政治', '國際', '娛樂'],
-    sessions: new Set(), seq: 0, titleResult: { title: '自動帶入的原始標題', source: 'og:title' }, calls: [] };
+    sessions: new Set(), seq: 0, legacyBackend: false,   // legacyBackend：模擬還沒更新的舊後端（不認得 last／expires，回傳也沒有 expires 欄位）
+     titleResult: { title: '自動帶入的原始標題', source: 'og:title' }, calls: [] };
   const ok = (data) => ({ ok: true, data });
   const bad = (code, extra) => Object.assign({ ok: false, code, error: code }, extra);
   const clone = (x) => JSON.parse(JSON.stringify(x));
@@ -14,30 +15,36 @@ function createFakeApi(opts = {}) {
   const mkV = (ver, t) => ({ ver, t, last: null, count: 0 });
 
   function seed(item) {
-    st.items.push(Object.assign({ cat: '生活', note: '', last: null, count: 0, created: st.now, titles: [] }, item));
+    st.items.push(Object.assign({ cat: '生活', note: '', last: null, count: 0, created: st.now, expires: null, titles: [] }, item));
   }
+  const out = (x) => { const c = clone(x); if (st.legacyBackend) delete c.expires; return c; };
   const actions = {
     ping: () => ok({ pong: true }),
-    listItems: () => ok(clone({ items: st.items, cats: st.cats })),
+    listItems: () => ok({ items: st.items.map(out), cats: clone(st.cats) }),
     fetchTitle: () => ok(clone(st.titleResult)),
     addItem(a) {
       const id = idOf(a.url) || 'N' + (st.items.length + 1);
       if (find(id)) return bad('duplicate', { existing: clone(find(id)) });
-      const item = { id, cat: a.cat, orig: a.orig, url: a.url, note: a.note || '', last: null, count: 0, created: st.now,
+      const item = { id, cat: a.cat, orig: a.orig, url: a.url, note: a.note || '', last: null, count: 0, created: st.now, expires: null,
         titles: (a.titles || []).map((t, i) => mkV(i + 1, t)) };
+      if (!st.legacyBackend) {
+        if (a.expires) item.expires = a.expires;
+        if (a.last != null) { item.last = a.last; item.count = 1; }
+      }
       st.items.push(item);
-      return ok({ item: clone(item) });
+      return ok({ item: out(item) });
     },
     updateItem(a) {
       const it = find(a.id); if (!it) return bad('not_found');
       const vers = (x) => it.titles.some((v) => v.ver === x);
       if ((a.edit || []).some((e) => !vers(e.ver)) || (a.remove || []).some((x) => !vers(x))) return bad('stale');
       it.cat = a.cat; it.note = a.note;
+      if (!st.legacyBackend && a.expires !== undefined) it.expires = a.expires || null;
       (a.edit || []).forEach((e) => { it.titles.find((v) => v.ver === e.ver).t = e.t; });
       const max = it.titles.reduce((m, v) => Math.max(m, v.ver), 0);
       it.titles = it.titles.filter((v) => !(a.remove || []).includes(v.ver));
       (a.add || []).forEach((t, i) => it.titles.push(mkV(max + 1 + i, t)));
-      return ok({ item: clone(it) });
+      return ok({ item: out(it) });
     },
     deleteItem(a) {
       if (!find(a.id)) return bad('not_found');
@@ -51,7 +58,7 @@ function createFakeApi(opts = {}) {
         v.last = st.now; v.count += 1;
       }
       it.last = st.now; it.count += 1;
-      return ok({ item: clone(it) });
+      return ok({ item: out(it) });
     }
   };
 

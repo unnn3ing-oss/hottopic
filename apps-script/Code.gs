@@ -5,7 +5,7 @@
 
 var SHEET = { news: '新聞', edits: '改標', cats: '分類' };
 var HEADERS = {
-  news: ['id', '分類', '原始標題', '原文連結', '小編文', '上次使用時間', '使用次數', '建立時間'],
+  news: ['id', '分類', '原始標題', '原文連結', '小編文', '上次使用時間', '使用次數', '建立時間', '到期日'],
   edits: ['新聞id', '版本號', '標題', '上次使用時間', '使用次數', '建立時間'],
   cats: ['分類']
 };
@@ -91,7 +91,7 @@ function writeBlock_(sheet, row, col, formats, rows) {
 function writeText_(sheet, row, col, values) {
   writeBlock_(sheet, row, col, values[0].map(function () { return FMT_TEXT; }), values);
 }
-function newsFormats_() { return [FMT_TEXT, FMT_TEXT, FMT_TEXT, FMT_TEXT, FMT_TEXT, DATE_FORMAT, FMT_NUM, DATE_FORMAT]; }
+function newsFormats_() { return [FMT_TEXT, FMT_TEXT, FMT_TEXT, FMT_TEXT, FMT_TEXT, DATE_FORMAT, FMT_NUM, DATE_FORMAT, FMT_TEXT]; }
 function editFormats_() { return [FMT_TEXT, FMT_NUM, FMT_TEXT, DATE_FORMAT, FMT_NUM, DATE_FORMAT]; }
 
 function ensureSheet_(ss, name, headers, defaults) {
@@ -124,17 +124,28 @@ function toInt_(v) { var n = Number(v); return isFinite(n) && n >= 0 ? Math.floo
 function toMs_(v) { return v instanceof Date && !isNaN(v.getTime()) ? v.getTime() : null; }
 function rows_(sheet, cols) {   // 一次呼叫讀整頁（含標題列），去掉標題後補齊欄數
   var all = sheet.getDataRange().getValues();
-  return all.slice(1).map(function (r) { while (r.length < cols) r.push(''); return r; });
+  var out = all.slice(1).map(function (r) { while (r.length < cols) r.push(''); return r; });
+  out.header = all[0] || [];
+  return out;
+}
+
+// 到期日欄：文字 'YYYY-MM-DD'；手動輸入成日期儲存格時換算成台北日期；其他（空白、亂填）一律當作沒設
+function expiresOf_(v) {
+  if (v instanceof Date) return isNaN(v.getTime()) ? null : dateStrTaipei(v.getTime());
+  var t = str_(v).trim();
+  return isDateStr(t) ? t : null;
 }
 
 // 讀整份資料；手動編輯造成的壞資料（空白列、孤兒改標、非數字版本號…）略過而不是整個失敗
 function readAll_(db, light) {   // light：只讀新聞與分類（新增時只需要編號與分類，不讀改標）
   var items = [], byId = {}, newsRow = {}, editRows = {}, verRow = {};
-  rows_(db.news, 8).forEach(function (r, i) {
+  var newsRows = rows_(db.news, 9);
+  if (str_(newsRows.header[8]).trim() !== HEADERS.news[8]) writeText_(db.news, 1, 9, [[HEADERS.news[8]]]);   // 舊試算表補上「到期日」標題
+  newsRows.forEach(function (r, i) {
     var id = str_(r[0]).trim();
     if (!id || byId[id]) return;
     var item = { id: id, cat: str_(r[1]).trim(), orig: str_(r[2]), url: str_(r[3]), note: str_(r[4]),
-      last: toMs_(r[5]), count: toInt_(r[6]), created: toMs_(r[7]) || 0, titles: [] };
+      last: toMs_(r[5]), count: toInt_(r[6]), created: toMs_(r[7]) || 0, expires: expiresOf_(r[8]), titles: [] };
     byId[id] = item; newsRow[id] = i + 2; items.push(item);
   });
   (light ? [] : rows_(db.edits, 6)).forEach(function (r, i) {
@@ -190,6 +201,20 @@ function optNote_(v) {
   return n;
 }
 
+var MIN_LAST_MS = Date.UTC(2000, 0, 1), CLOCK_SKEW_MS = 5 * 60 * 1000;
+// 到期日：沒填（undefined／null／空字串）回 null；有填必須是真實存在的 YYYY-MM-DD
+function optExpires_(v) {
+  if (v === undefined || v === null || v === '') return null;
+  if (!isDateStr(v)) failure_('bad_request');
+  return v;
+}
+// 新增時就已使用過的時間（毫秒）：不得早於 2000 年，也不得晚於現在超過 5 分鐘（容許本機時鐘誤差）
+function optLast_(v, nowMs) {
+  if (v === undefined || v === null) return null;
+  if (typeof v !== 'number' || !isFinite(v) || Math.floor(v) !== v || v < MIN_LAST_MS || v > nowMs + CLOCK_SKEW_MS) failure_('bad_request');
+  return v;
+}
+
 /* ---------- 動作 ---------- */
 function ping_() {
   db_();   // 順便驗證 SHEET_ID 設對了
@@ -207,6 +232,7 @@ function addItem_(args) {
   var cat = reqString_(args.cat).trim();
   var note = optNote_(args.note);
   var titles = textList_(args.titles);
+  var expires = optExpires_(args.expires), last = optLast_(args.last, new Date().getTime());
   if (!url || !orig || !cat || orig.length > LIMITS.orig || titles.length > LIMITS.variants) failure_('bad_request');
   var db = db_();
   return withLock_(function () {
@@ -215,10 +241,10 @@ function addItem_(args) {
     var id = extractId(url) || nextSerialId(all.items.map(function (i) { return i.id; }));
     if (all.byId[id]) failure_('duplicate', { existing: readAll_(db).byId[id] });
     var now = new Date();
-    writeBlock_(db.news, db.news.getLastRow() + 1, 1, newsFormats_(), [[id, cat, orig, url, note, '', 0, now]]);
+    writeBlock_(db.news, db.news.getLastRow() + 1, 1, newsFormats_(), [[id, cat, orig, url, note, last === null ? '' : new Date(last), last === null ? 0 : 1, now, expires || '']]);
     var vers = titles.map(function (t, i) { return { ver: i + 1, t: t }; });
     appendEditRows_(db, id, vers, now);
-    return { item: { id: id, cat: cat, orig: orig, url: url, note: note, last: null, count: 0, created: now.getTime(),
+    return { item: { id: id, cat: cat, orig: orig, url: url, note: note, last: last, count: last === null ? 0 : 1, created: now.getTime(), expires: expires,
       titles: vers.map(function (v) { return { ver: v.ver, t: v.t, last: null, count: 0 }; }) } };   // 直接組出結果，不再重讀整份資料
   });
 }
@@ -240,6 +266,7 @@ function updateItem_(args) {
     seen[v] = true;
   });
   var add = textList_(args.add);
+  var setExpires = args.expires !== undefined, expires = optExpires_(args.expires);
   var db = db_();
   return withLock_(function () {
     var all = readAll_(db), item = all.byId[id];
@@ -251,6 +278,7 @@ function updateItem_(args) {
     var maxVer = item.titles.reduce(function (m, v) { return Math.max(m, v.ver); }, 0);
     var row = all.newsRow[id];
     writeText_(db.news, row, 2, [[cat, item.orig, item.url, note]]);   // 第 2–5 欄一次寫入（原始標題與網址原值寫回）
+    if (setExpires) { writeText_(db.news, row, 9, [[expires || '']]); item.expires = expires; }
     edits.forEach(function (e) { writeText_(db.edits, all.verRow[id][e.ver], 3, [[e.t]]); });
     remove.map(function (v) { return all.verRow[id][v]; }).sort(function (a, b) { return b - a; })
       .forEach(function (r) { db.edits.deleteRow(r); });

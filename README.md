@@ -52,6 +52,8 @@ Cloudflare Worker（worker/index.js）── 驗憑證，加上 API_TOKEN ──
 
 之後修改程式要「管理部署作業 → 編輯 → 新版本」才會生效（網址不變）。冒煙測試的做法見 `docs/apps-script-smoke-test.md`。
 
+**到期日功能的升級注意**：「新聞」分頁新增第 9 欄「到期日」（文字 `YYYY-MM-DD`，空白＝永不到期）。舊試算表不用手動改，後端第一次讀取時會自動補上標題。這個版本的後端要「新版本」部署後，網頁填的「到期日」與「新增時已使用過」才會存進去；後端沒更新時，網頁會在儲存後提示「後端還沒更新」。到期當天（台北時間 00:00）起，文章從主列表與搜尋移到「已到期」；編輯時把到期日改成未來或清除，就會回到主列表。
+
 ### Cloudflare Worker 部署（約 10 分鐘，一次性）
 
 1. Cloudflare 儀表板 → Workers & Pages → Create → Worker，建立後 Edit code，把 `worker/index.js` 整份貼進去並 Deploy。

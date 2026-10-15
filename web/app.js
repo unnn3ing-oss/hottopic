@@ -6,7 +6,7 @@
   var DAY = 864e5;
   var REDUCED = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   var state = {
-    items: [], cats: [], status: 'idle', error: '', cat: '全部', q: '', sort: 'oldest', size: loadSize(), page: 1,
+    items: [], cats: [], status: 'idle', error: '', cat: '全部', expired: false, q: '', sort: 'oldest', size: loadSize(), page: 1,
     pos: {}, pendingMark: null, markTimer: null, busy: new Set(),
     editing: null, draft: [], removed: [], saving: false, delTimer: null,
     fetchSeq: 0, lastFetchUrl: null, origTouched: false, catTouched: false,
@@ -63,11 +63,11 @@
 
   /* ---------- 提示、複製 ---------- */
   var toastTimer = null;
-  function toast(msg) {
+  function toast(msg, ms) {
     var t = $('toast');
     t.textContent = msg; t.hidden = false;
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(function () { t.hidden = true; }, 2200);
+    toastTimer = setTimeout(function () { t.hidden = true; }, ms || 2200);
   }
 
   // 複製成功才顯示 okMsg 並呼叫 onOk（例如記下「已複製標題」）
@@ -136,9 +136,10 @@
   }
 
   function visibleItems() {
-    var q = state.q.trim().toLowerCase();
+    var q = state.q.trim().toLowerCase(), now = Date.now();
     var r = state.items.filter(function (it) {
-      if (state.cat !== '全部' && it.cat !== state.cat) return false;
+      if (isExpired(it.expires, now) !== state.expired) return false;   // 主列表只有未到期的；「已到期」只有到期的（搜尋也一樣）
+      if (!state.expired && state.cat !== '全部' && it.cat !== state.cat) return false;
       if (!q) return true;
       var all = it.id + ' ' + it.orig + ' ' + it.titles.map(function (v) { return v.t; }).join(' ');
       return all.toLowerCase().indexOf(q) > -1;
@@ -157,11 +158,16 @@
     var box = $('chips');
     var names = ['全部'].concat(allCats());
     if (state.cat !== '全部' && names.indexOf(state.cat) === -1) state.cat = '全部';
-    box.replaceChildren.apply(box, names.map(function (c) {
-      var n = c === '全部' ? state.items.length : state.items.filter(function (i) { return i.cat === c; }).length;
-      return h('button', { type: 'button', class: 'chip', 'data-cat': c, 'aria-pressed': String(state.cat === c) },
+    var now = Date.now();
+    var live = state.items.filter(function (i) { return !isExpired(i.expires, now); });
+    var chips = names.map(function (c) {
+      var n = c === '全部' ? live.length : live.filter(function (i) { return i.cat === c; }).length;
+      return h('button', { type: 'button', class: 'chip', 'data-cat': c, 'aria-pressed': String(!state.expired && state.cat === c) },
         c, h('small', { text: String(n) }));
-    }));
+    });
+    chips.push(h('button', { type: 'button', class: 'chip exp', 'data-expired': '1', 'aria-pressed': String(state.expired) },
+      '已到期', h('small', { text: String(state.items.length - live.length) })));
+    box.replaceChildren.apply(box, chips);
   }
 
   function markLabel(confirming, n, p) { return confirming ? '再按一次確認' + (n > 1 ? '（第 ' + (p + 1) + ' 版）' : '') : '標記已使用'; }
@@ -183,6 +189,10 @@
     var used = it.last == null
       ? h('span', { class: 'used never' }, h('b', { text: '從未使用' }), ' · 使用 0 次')
       : h('span', { class: 'used' }, '上次使用 ', h('b', { text: fmt(it.last) }), '（' + ago(it.last) + '）· 共 ' + it.count + ' 次');
+    var gone = isExpired(it.expires, Date.now());
+    var expiry = it.expires
+      ? h('span', { class: 'expiry' + (gone ? ' over' : '') }, gone ? '已到期 · 到期日 ' : '到期日 ', h('b', { text: it.expires.replace(/-/g, '/') }))
+      : null;
     var titles, dots = null;
     if (!n) titles = h('div', { class: 'car' }, h('p', { class: 'title empty', text: '（尚未改標）' }));
     else {
@@ -205,7 +215,7 @@
       h('div', { class: 'chead' },
         h('button', { type: 'button', class: 'back', 'data-act': 'back', 'aria-label': '返回列表' }, '‹'),
         h('span', { class: 'ctitle' }, '新聞', h('small', { text: '#' + it.id })),
-        h('span', { class: 'cat', text: it.cat }), used),
+        h('span', { class: 'cat', text: it.cat }), used, expiry),
       h('div', { class: 'orig', title: it.orig }, h('span', { class: 'tag', text: '原始' }), h('span', { class: 'ot', text: it.orig })),
       h('div', { class: 'field' }, h('span', { class: 'lbl', text: '改標' }), titles, dots),
       h('div', { class: 'field' }, h('span', { class: 'lbl', text: '小編文' }),
@@ -245,7 +255,7 @@
     var r = visibleItems();
     if (!r.length) {
       $('cnt').textContent = '共 0 則'; $('pager').hidden = true;
-      list.replaceChildren(h('div', { class: 'none', text: '沒有符合的新聞。調整搜尋或分類，或按「＋ 新增新聞」。' })); state.sel = null; showDetail(false); renderCard(true); return;
+      list.replaceChildren(h('div', { class: 'none', text: state.expired && !state.q.trim() ? '沒有已到期的文章。' : '沒有符合的新聞。調整搜尋或分類，或按「＋ 新增新聞」。' })); state.sel = null; showDetail(false); renderCard(true); return;
     }
     var pages = HotNewsPaging.pageCount(r.length, state.size);
     if (state.sel && r.some(function (i) { return i.id === state.sel; })) {
@@ -611,7 +621,8 @@
   $('chips').addEventListener('click', function (e) {
     var b = e.target.closest('.chip');
     if (!b) return;
-    state.cat = b.getAttribute('data-cat');
+    if (b.hasAttribute('data-expired')) { state.expired = true; state.cat = '全部'; }
+    else { state.expired = false; state.cat = b.getAttribute('data-cat'); }
     goView();
   });
   $('q').addEventListener('input', function (e) { state.q = e.target.value; goView(); });
@@ -732,6 +743,10 @@
     $('fOrig').value = item ? item.orig : ''; $('fOrig').readOnly = !!item;
     fillCats(item ? item.cat : allCats()[0]);
     $('fNote').value = item ? item.note : '';
+    $('usedBox').hidden = !!item;                       // 使用狀態只在新增時填；之後靠「標記已使用」累計
+    $('fUsed0').checked = true; $('fLast').value = ''; $('lastRow').hidden = true;
+    $('fExp').value = item && item.expires ? item.expires : '';
+    syncExpHint();
     $('titleHint').textContent = '';
     setErr('');
     resetDel();
@@ -741,6 +756,27 @@
     checkUrl();
     if (!$('dlg').open) $('dlg').showModal();
   }
+
+  function localInputValue(ms) {   // 毫秒 → datetime-local 的值（瀏覽器所在時區，到分）
+    var d = new Date(ms);
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+  }
+  function syncUsed() {
+    var used = $('fUsed1').checked;
+    $('lastRow').hidden = !used;
+    if (used && !$('fLast').value) $('fLast').value = localInputValue(Date.now());
+  }
+  function syncExpHint() {
+    var v = $('fExp').value, hint = $('expHint');
+    var past = isDateStr(v) && v <= dateStrTaipei(Date.now());
+    hint.hidden = !past;
+    hint.textContent = past ? '這個日期是今天或更早，儲存後會直接放進「已到期」，不會出現在主列表。' : '';
+  }
+  $('fUsed0').addEventListener('change', syncUsed);
+  $('fUsed1').addEventListener('change', syncUsed);
+  $('fExp').addEventListener('input', syncExpHint);
+  $('fExp').addEventListener('change', syncExpHint);
+  $('fExpClear').addEventListener('click', function () { $('fExp').value = ''; syncExpHint(); });
 
   function setIdHint(text, dup) {
     var hint = $('idHint');
@@ -829,6 +865,14 @@
     if (!rawUrl.trim() || !orig) { setErr('網址和原始標題必填。'); return; }
     if (!url) { setErr('網址格式不正確（需為 http 或 https 的完整網址）。'); return; }
     if (!cat) { setErr('請選擇分類。'); return; }
+    var exp = $('fExp').value, last;
+    if (exp && !isDateStr(exp)) { setErr('到期日格式不正確。'); return; }
+    if (!it && $('fUsed1').checked) {
+      if (!$('fLast').value) { setErr('請填上次使用時間。'); return; }
+      last = new Date($('fLast').value).getTime();
+      if (!isFinite(last)) { setErr('上次使用時間格式不正確。'); return; }
+      if (last > Date.now() + 5 * 60000) { setErr('上次使用時間不能在未來。'); return; }
+    }
     setErr('');
 
     var req, action;
@@ -836,6 +880,8 @@
       action = 'addItem';
       req = { url: url, orig: orig, cat: cat, note: note,
         titles: state.draft.map(function (v) { return normalizeText(v.t); }).filter(Boolean) };
+      if (last !== undefined) req.last = last;
+      if (exp) req.expires = exp;
     } else {
       action = 'updateItem';
       var edit = [], add = [], remove = state.removed.slice();
@@ -846,13 +892,18 @@
         else if (t !== v.orig) edit.push({ ver: v.ver, t: t });
       });
       req = { id: it.id, cat: cat, note: note, edit: edit, add: add, remove: remove };
+      if ((it.expires || null) !== (exp || null)) req.expires = exp || null;   // 沒改就不送，少寫一次試算表
     }
     state.saving = true; $('save').disabled = true; $('save').textContent = '儲存中…';
     mutate(action, req).then(function (data) {
       if (!data) { $('dlg').close(); return; }
       replaceItem(data.item);
       state.pos[data.item.id] = Math.min(state.pos[data.item.id] || 0, Math.max(data.item.titles.length - 1, 0));
-      $('dlg').close(); render(); toast('已儲存 #' + data.item.id);
+      $('dlg').close(); render();
+      // 舊版後端會直接忽略新欄位、回傳也沒有 expires；有填這些欄位卻沒收到就明確提醒，不能默默掉資料
+      var wantsNew = req.last !== undefined || (req.expires !== undefined && req.expires !== null);
+      if (wantsNew && !('expires' in data.item)) toast('已儲存 #' + data.item.id + '，但後端還沒更新，到期日／使用紀錄沒有存到。請在 Apps Script 重新部署（見 README）。', 8000);
+      else toast('已儲存 #' + data.item.id);
     }).catch(function (err) {
       if (err.code === 'duplicate' && err.existing) { replaceItem(err.existing); render(); state.saving = false; openDialog(err.existing); return; }
       if (err.code === 'unauthorized') return;   // 登入視窗已由 callApi 開啟；保留編輯視窗與草稿，重新登入後再按儲存
