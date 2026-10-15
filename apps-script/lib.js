@@ -69,6 +69,27 @@ function buildComment(item) {
   return note ? note + '\n' + link : link;
 }
 
+/* ---------- 到期日（'YYYY-MM-DD'，台北時間；到期日當天 00:00 起算已到期）---------- */
+var TAIPEI_OFFSET_MS = 8 * 3600 * 1000;
+
+function isDateStr(s) {
+  var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(typeof s === 'string' ? s : '');
+  if (!m) return false;
+  var y = Number(m[1]), mo = Number(m[2]), d = Number(m[3]);
+  var t = new Date(Date.UTC(y, mo - 1, d));
+  return t.getUTCFullYear() === y && t.getUTCMonth() === mo - 1 && t.getUTCDate() === d;
+}
+
+// 毫秒 → 台北當地日期字串
+function dateStrTaipei(ms) {
+  return new Date(ms + TAIPEI_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+// YYYY-MM-DD 是固定長度，字串比較等於日期比較
+function isExpired(expires, nowMs) {
+  return isDateStr(expires) && dateStrTaipei(nowMs) >= expires;
+}
+
 /* ---------- 標題抽取（Apps Script 伺服器端用；沒有 DOMParser，改用規則運算式） ---------- */
 var TITLE_SOURCES = ['og:title', 'twitter:title', 'title', 'h1'];
 var SITE_SUFFIXES = [];                 // 已知網站名稱後綴；預設空（規格：不先猜）
@@ -161,6 +182,7 @@ if (typeof module !== 'undefined' && module.exports) {
     COMMENT_BASE_URL: COMMENT_BASE_URL, LIMITS: LIMITS, extractId: extractId, isHttpUrl: isHttpUrl,
     normalizeUrl: normalizeUrl, nextSerialId: nextSerialId, normalizeText: normalizeText,
     normalizeLine: normalizeLine, buildComment: buildComment,
+    TAIPEI_OFFSET_MS: TAIPEI_OFFSET_MS, isDateStr: isDateStr, dateStrTaipei: dateStrTaipei, isExpired: isExpired,
     TITLE_SOURCES: TITLE_SOURCES, SITE_SUFFIXES: SITE_SUFFIXES, HTML_SCAN_LIMIT: HTML_SCAN_LIMIT,
     cleanTitle: cleanTitle, titleFromHtml: titleFromHtml, CATEGORY_RULES: CATEGORY_RULES, guessCategory: guessCategory
   };

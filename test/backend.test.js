@@ -85,7 +85,7 @@ test('測試台自檢：回應含 Date 會丟例外', () => {
 test('setup：建出三個分頁與標題列、預設分類、時區；重跑不覆蓋；日誌不含密碼值', () => {
   const s = setup();
   s.be.setup();
-  assert.deepEqual(s.gas.dump('新聞')[0], ['id', '分類', '原始標題', '原文連結', '小編文', '上次使用時間', '使用次數', '建立時間']);
+  assert.deepEqual(s.gas.dump('新聞')[0], ['id', '分類', '原始標題', '原文連結', '小編文', '上次使用時間', '使用次數', '建立時間', '到期日']);
   assert.deepEqual(s.gas.dump('改標')[0], ['新聞id', '版本號', '標題', '上次使用時間', '使用次數', '建立時間']);
   assert.deepEqual(s.gas.dump('分類').map((r) => r[0]), ['分類', '社會', '生活', '健康', '政治', '國際', '娛樂']);
   assert.equal(s.gas.calls.timezone, 'Asia/Taipei');
@@ -325,4 +325,91 @@ test('addItem／markUsed／updateItem 直接回傳的 item 與重新讀取的結
   same(s.call('markUsed', { id: '301', ver: 2 }));
   same(s.call('updateItem', { id: '301', cat: '健康', note: '新', edit: [{ ver: 1, t: '改一' }], remove: [2], add: ['三'] }));
   same(s.call('markUsed', { id: '301', ver: 3 }));
+});
+
+/* ---------- 到期日與「新增時就已使用過」 ---------- */
+const MIN = 60 * 1000;
+const sheetCell = (s, r, c) => s.gas.dump('新聞')[r - 1][c - 1];
+
+test('listItems：到期日欄位（文字、日期儲存格、髒資料、舊的 8 欄資料）', () => {
+  const s = setup(); s.call('ping');
+  const t0 = new Date(Date.UTC(2026, 8, 1));
+  s.gas.seedRows('新聞', [
+    ['E1', '生活', 'o', 'https://a.b/1', '', '', 0, t0, '2026-12-31'],
+    ['E2', '生活', 'o', 'https://a.b/2', '', '', 0, t0, new Date(Date.UTC(2026, 11, 30, 16))],   // 手動輸入成日期 → 台北 2026-12-31
+    ['E3', '生活', 'o', 'https://a.b/3', '', '', 0, t0, '明天'],
+    ['E4', '生活', 'o', 'https://a.b/4', '', '', 0, t0, '2026-02-30'],
+    ['E5', '生活', 'o', 'https://a.b/5', '', '', 0, t0]                                         // 只有 8 欄
+  ]);
+  assert.deepEqual(s.list().items.map((i) => [i.id, i.expires]), [['E1', '2026-12-31'], ['E2', '2026-12-31'], ['E3', null], ['E4', null], ['E5', null]]);
+});
+
+test('舊試算表缺「到期日」標題：第一次讀取時補上，之後不再寫', () => {
+  const s = setup(); s.call('ping');
+  s.gas.spreadsheet.getSheetByName('新聞').getRange(1, 9).setValues([['']]);
+  assert.equal(sheetCell(s, 1, 9), '');
+  s.call('listItems');
+  assert.equal(sheetCell(s, 1, 9), '到期日');
+  const writes = s.gas.opLog.length;
+  s.call('listItems');
+  assert.equal(s.gas.opLog.length, writes);
+});
+
+test('addItem 不帶 last／expires：回傳 expires: null（網頁靠這個欄位判斷後端是否已更新）', () => {
+  const s = setup();
+  const it = add(s).data.item;
+  assert.ok('expires' in it);
+  assert.deepEqual([it.expires, it.last, it.count], [null, null, 0]);
+  assert.equal(sheetCell(s, 2, 9), '');
+});
+
+test('addItem 帶 expires 與 last：記為已使用 1 次，到期日存成文字，列表結果一致', () => {
+  const s = setup();
+  const last = s.gas.now - 3 * 864e5;
+  const r = add(s, { expires: '2026-11-30', last });
+  assert.equal(r.ok, true);
+  const it = r.data.item;
+  assert.deepEqual([it.expires, it.last, it.count], ['2026-11-30', last, 1]);
+  assert.equal(sheetCell(s, 2, 9), '2026-11-30');
+  assert.equal(typeof sheetCell(s, 2, 9), 'string');
+  assert.ok(sheetCell(s, 2, 6) instanceof Date);
+  assert.equal(sheetCell(s, 2, 7), 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(s.list().items[0])), JSON.parse(JSON.stringify(it)));
+});
+
+test('addItem 只帶 last 或只帶 expires 都可以；null 與空字串視為沒填', () => {
+  const s = setup();
+  assert.deepEqual([add(s, { url: 'https://x.com/a/1', last: s.gas.now - MIN }).data.item.count, add(s, { url: 'https://x.com/a/2', expires: '2027-01-01' }).data.item.count], [1, 0]);
+  const n = add(s, { url: 'https://x.com/a/3', last: null, expires: '' }).data.item;
+  assert.deepEqual([n.last, n.count, n.expires], [null, 0, null]);
+});
+
+test('addItem：last／expires 不合規一律 bad_request 且不寫入', () => {
+  const s = setup(); s.call('ping');
+  const bads = [{ expires: '2026-02-30' }, { expires: '2026/11/30' }, { expires: 20261130 }, { expires: ['2026-11-30'] },
+    { last: 'x' }, { last: '2026-10-01' }, { last: 1.5 }, { last: s.gas.now + 10 * MIN }, { last: Date.UTC(1999, 0, 1) }, { last: -1 }];
+  for (const b of bads) assert.equal(code(add(s, b)), 'bad_request', JSON.stringify(b));
+  assert.equal(s.gas.dump('新聞').length, 1);
+  assert.equal(code(add(s, { last: s.gas.now + 2 * MIN })), 'ok');   // 容許本機時鐘快幾分鐘
+});
+
+test('updateItem 的 expires：設定、沒帶＝不動、null 或空字串＝清除、不合規 bad_request', () => {
+  const s = setup(); add(s, { expires: '2026-11-30' });
+  const upd = (extra) => s.call('updateItem', Object.assign({ id: '4032757', cat: '生活', note: 'n' }, extra));
+  assert.equal(upd({}).data.item.expires, '2026-11-30');
+  assert.equal(upd({ expires: '2027-02-01' }).data.item.expires, '2027-02-01');
+  assert.equal(sheetCell(s, 2, 9), '2027-02-01');
+  assert.equal(upd({ expires: null }).data.item.expires, null);
+  assert.equal(sheetCell(s, 2, 9), '');
+  assert.equal(upd({ expires: '2027-03-01' }).data.item.expires, '2027-03-01');
+  assert.equal(upd({ expires: '' }).data.item.expires, null);
+  for (const bad of ['2027-13-01', 'x', 5]) assert.equal(code(upd({ expires: bad })), 'bad_request', String(bad));
+  assert.equal(s.list().items[0].expires, null);
+});
+
+test('新增與更新帶到期日時，試算表呼叫次數仍在上限內', () => {
+  const s = setup(); s.call('ping');
+  const calls = (fn) => { const b = s.gas.calls.sheetCalls; const r = fn(); assert.equal(r.ok, true); return s.gas.calls.sheetCalls - b; };
+  assert.ok(calls(() => add(s, { url: 'https://news.tvbs.com.tw/local/777', titles: ['a', 'b', 'c'], expires: '2026-12-01', last: s.gas.now - MIN })) <= 10, 'addItem');
+  assert.ok(calls(() => s.call('updateItem', { id: '777', cat: '社會', note: 'x', expires: '2026-12-02' })) <= 11, 'updateItem');
 });

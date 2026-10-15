@@ -8,7 +8,7 @@ const { buildSite } = require('../scripts/build-site.js');
 const CSP = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src https://*.workers.dev; img-src 'self' data:; base-uri 'none'; form-action 'none'";
 const IDS = ['settingsBtn', 'addBtn', 'q', 'sortX', 'sizeX', 'pager', 'chips', 'cnt', 'list', 'card', 'settingsDlg', 'settingsForm', 'sUrl', 'sToken',
   'sRemember', 'sMsg', 'sSteps', 'sClear', 'sSave', 'dlg', 'form', 'dlgTitle', 'fUrl', 'idHint', 'fCat', 'fOrig',
-  'titleHint', 'vars', 'addVar', 'fNote', 'err', 'del', 'cancel', 'save', 'toast'];
+  'titleHint', 'vars', 'addVar', 'usedBox', 'fUsed0', 'fUsed1', 'lastRow', 'fLast', 'fExp', 'fExpClear', 'expHint', 'fNote', 'err', 'del', 'cancel', 'save', 'toast'];
 
 const out = fs.mkdtempSync(path.join(os.tmpdir(), 'site-'));
 const sha = 'abcdef0123456789abcdef0123456789abcdef01';

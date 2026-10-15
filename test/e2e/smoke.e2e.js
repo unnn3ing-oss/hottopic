@@ -8,6 +8,7 @@ const path = require('node:path');
 const { chromium } = require('playwright');
 const { buildSite } = require('../../scripts/build-site.js');
 const { createFakeApi, seedSample, PASSWORD } = require('../helpers/fake-api.js');
+const lib = require('../../apps-script/lib.js');
 
 const API_URL = 'https://hotnews.test-account.workers.dev';
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8' };
@@ -843,4 +844,193 @@ test('選單滑動：系統設定「減少動態效果」時不做動畫，點�
   await page.click('#sortX [data-v="recent"]');
   assert.equal(await page.locator('#sortX .xsel-slide').isHidden(), true);
   assert.equal(await page.evaluate(() => document.activeElement.classList.contains('xsel-btn')), true);
+});
+
+/* ---------- 到期日與「新增時就已使用過」 ---------- */
+// 瀏覽器用真實時鐘判斷到期，所以日期一律以「現在」往前後推，不依賴假 API 的固定時間
+const dayStr = (offset) => lib.dateStrTaipei(Date.now() + offset * 864e5);
+function seedExpiry(api) {
+  api.seed({ id: '6000001', cat: '社會', url: 'https://news.tvbs.com.tw/local/6000001', orig: '補助申請即將截止的舊聞', expires: dayStr(-5),
+    titles: [{ ver: 1, t: '過期補助改標', last: null, count: 0 }], created: api.st.now });
+  api.seed({ id: '6000002', cat: '生活', url: 'https://news.tvbs.com.tw/life/6000002', orig: '罰款新制今天到期的新聞', expires: dayStr(0), created: api.st.now });
+  api.seed({ id: '6000003', cat: '生活', url: 'https://news.tvbs.com.tw/life/6000003', orig: '還有效的熱門罰款新聞', expires: dayStr(5), created: api.st.now });
+}
+
+test('到期日：到期當天起不在主列表與搜尋，集中在「已到期」；分類數量不含到期文章', async (t) => {
+  const { page, api } = await open(t);
+  seedExpiry(api);
+  await connectRows(page);
+  const main = await rowIds(page);
+  assert.ok(main.includes('6000003'));
+  assert.ok(!main.includes('6000001') && !main.includes('6000002'));
+  assert.equal(await page.locator('.chip[data-cat="全部"] small').textContent(), '4');       // 3 則範例 + 1 則有效
+  assert.equal(await page.locator('.chip[data-cat="社會"] small').textContent(), '2');       // 到期的 6000001 不算
+  assert.equal(await page.locator('.chip[data-expired] small').textContent(), '2');
+  await page.fill('#q', '補助');
+  assert.match(await page.locator('#list').textContent(), /沒有符合的新聞/);                  // 主列表搜不到過期文章
+  await page.fill('#q', '');
+  await page.click('.chip[data-expired]');
+  assert.deepEqual((await rowIds(page)).sort(), ['6000001', '6000002']);
+  assert.equal(await page.getAttribute('.chip[data-expired]', 'aria-pressed'), 'true');
+  assert.equal(await page.getAttribute('.chip[data-cat="全部"]', 'aria-pressed'), 'false');
+  await page.fill('#q', '補助');
+  assert.deepEqual(await rowIds(page), ['6000001']);                                         // 在「已到期」裡搜尋只找到期文章
+  await page.fill('#q', '');
+  await page.click('.chip[data-cat="全部"]');
+  assert.ok(!(await rowIds(page)).includes('6000001'));
+  assert.equal(await page.getAttribute('.chip[data-expired]', 'aria-pressed'), 'false');
+});
+
+test('到期日：卡片顯示到期日；已到期的文章標示「已到期」', async (t) => {
+  const { page, api } = await open(t);
+  seedExpiry(api);
+  await connectRows(page);
+  await pick(page, '6000003');
+  assert.match(await page.locator('#card .expiry').textContent(), new RegExp(dayStr(5).replace(/-/g, '/')));
+  assert.equal(await page.locator('#card .expiry.over').count(), 0);
+  await page.click('.chip[data-expired]');
+  await pick(page, '6000001');
+  assert.match(await page.locator('#card .expiry.over').textContent(), /已到期/);
+  await page.fill('#q', '');
+  await page.click('.chip[data-cat="全部"]');
+  await pick(page, '4032757');
+  assert.equal(await page.locator('#card .expiry').count(), 0);                              // 沒設到期日就不顯示
+});
+
+test('到期日：沒有任何到期文章時「已到期」仍在，點進去顯示說明', async (t) => {
+  const { page } = await open(t);
+  await connectRows(page);
+  assert.equal(await page.locator('.chip[data-expired] small').textContent(), '0');
+  await page.click('.chip[data-expired]');
+  assert.match(await page.locator('#list').textContent(), /沒有已到期的文章/);
+});
+
+test('到期日：編輯時改成未來日期就回到主列表；清除也可以', async (t) => {
+  const { page, api } = await open(t);
+  seedExpiry(api);
+  await connectRows(page);
+  await page.click('.chip[data-expired]');
+  await pick(page, '6000001');
+  await page.click('#card [data-act=edit]');
+  assert.equal(await page.inputValue('#fExp'), dayStr(-5));
+  assert.equal(await page.locator('#usedBox').isHidden(), true);                             // 編輯時不能改「使用狀態」
+  await page.fill('#fExp', dayStr(30));
+  await page.click('#save');
+  await page.waitForSelector('#dlg', { state: 'hidden' });
+  assert.equal(api.st.items.find((i) => i.id === '6000001').expires, dayStr(30));
+  assert.deepEqual(await rowIds(page), ['6000002']);                                         // 離開「已到期」
+  await page.click('.chip[data-cat="全部"]');
+  assert.ok((await rowIds(page)).includes('6000001'));
+  await pick(page, '6000001');
+  await page.click('#card [data-act=edit]');
+  await page.click('#fExpClear');
+  assert.equal(await page.inputValue('#fExp'), '');
+  await page.click('#save');
+  await page.waitForSelector('#dlg', { state: 'hidden' });
+  assert.equal(api.st.items.find((i) => i.id === '6000001').expires, null);
+  assert.equal(await page.locator('#card .expiry').count(), 0);
+});
+
+test('到期日：新增視窗的提示——今天或更早會直接進「已到期」，未來日期不提示', async (t) => {
+  const { page } = await open(t);
+  await connectRows(page);
+  await page.click('#addBtn');
+  assert.equal(await page.locator('#expHint').isHidden(), true);
+  await page.fill('#fExp', dayStr(0));
+  assert.match(await page.textContent('#expHint'), /已到期/);
+  await page.fill('#fExp', dayStr(-3));
+  assert.match(await page.textContent('#expHint'), /已到期/);
+  await page.fill('#fExp', dayStr(3));
+  assert.equal(await page.locator('#expHint').isHidden(), true);
+  await page.fill('#fExp', dayStr(0));
+  await page.click('#fExpClear');
+  assert.equal(await page.locator('#expHint').isHidden(), true);
+});
+
+test('新增：預設「未使用」，不送 last 也不送 expires', async (t) => {
+  const { page, api } = await open(t);
+  await connectRows(page);
+  await page.click('#addBtn');
+  assert.equal(await page.isChecked('#fUsed0'), true);
+  assert.equal(await page.locator('#lastRow').isHidden(), true);
+  await page.fill('#fUrl', 'https://news.tvbs.com.tw/local/6100001');
+  await page.fill('#fOrig', '一般新增');
+  await page.click('#save');
+  await page.waitForSelector('#dlg', { state: 'hidden' });
+  const args = api.st.calls.filter((c) => c.action === 'addItem')[0].args;
+  assert.ok(!('last' in args) && !('expires' in args), JSON.stringify(args));
+  assert.equal(api.st.items.find((i) => i.id === '6100001').last, null);
+});
+
+test('新增：選「已使用過」填上次使用時間與到期日 → 記為已使用 1 次，卡片顯示該時間', async (t) => {
+  const { page, api } = await open(t);
+  await connectRows(page);
+  await page.click('#addBtn');
+  await page.fill('#fUrl', 'https://news.tvbs.com.tw/local/6100002');
+  await page.fill('#fOrig', '同事發過的新聞');
+  await page.check('#fUsed1');
+  assert.equal(await page.locator('#lastRow').isVisible(), true);
+  assert.ok((await page.inputValue('#fLast')) !== '');                                       // 預設帶入現在，免得每次都要填
+  const past = new Date(Date.now() - 2 * 864e5);
+  const local = lib.dateStrTaipei(past.getTime()) + 'T09:30';
+  await page.fill('#fLast', local);
+  await page.fill('#fExp', dayStr(10));
+  await page.click('#save');
+  await page.waitForSelector('#dlg', { state: 'hidden' });
+  const args = api.st.calls.filter((c) => c.action === 'addItem')[0].args;
+  assert.equal(args.last, Date.UTC(+local.slice(0, 4), +local.slice(5, 7) - 1, +local.slice(8, 10), 1, 30));   // 台北 09:30 = UTC 01:30
+  assert.equal(args.expires, dayStr(10));
+  await page.fill('#q', '6100002');
+  assert.match(await page.locator('#card .used').textContent(), /共 1 次/);
+  assert.match(await page.locator('#card .used').textContent(), new RegExp(local.slice(0, 4) + '/' + local.slice(5, 7) + '/' + local.slice(8, 10) + ' 09:30'));
+  assert.equal(await page.locator('.row[data-id="6100002"] .badge.fresh').count(), 0);        // 不再是「從未使用」
+});
+
+test('新增：選「已使用過」但時間留空或在未來 → 顯示錯誤、不送出', async (t) => {
+  const { page, api } = await open(t);
+  await connectRows(page);
+  await page.click('#addBtn');
+  await page.fill('#fUrl', 'https://news.tvbs.com.tw/local/6100003');
+  await page.fill('#fOrig', '時間不合規');
+  await page.check('#fUsed1');
+  await page.fill('#fLast', '');
+  await page.click('#save');
+  assert.match(await page.textContent('#err'), /上次使用時間/);
+  await page.fill('#fLast', dayStr(3) + 'T09:00');
+  await page.click('#save');
+  assert.match(await page.textContent('#err'), /未來/);
+  assert.equal(api.st.calls.filter((c) => c.action === 'addItem').length, 0);
+  await page.check('#fUsed0');                                                               // 改回「未使用」就不檢查時間
+  await page.click('#save');
+  await page.waitForSelector('#dlg', { state: 'hidden' });
+  assert.equal(api.st.calls.filter((c) => c.action === 'addItem').length, 1);
+});
+
+test('新增：每次開啟都回到「未使用」，不帶上一次的選擇', async (t) => {
+  const { page } = await open(t);
+  await connectRows(page);
+  await page.click('#addBtn');
+  await page.check('#fUsed1');
+  await page.fill('#fExp', dayStr(3));
+  await page.click('#cancel');
+  await page.click('#addBtn');
+  assert.equal(await page.isChecked('#fUsed0'), true);
+  assert.equal(await page.inputValue('#fExp'), '');
+  assert.equal(await page.locator('#lastRow').isHidden(), true);
+});
+
+test('後端還沒更新：照樣存下新聞，但明確提示到期日／使用紀錄沒有存到', async (t) => {
+  const { page, api } = await open(t);
+  api.st.legacyBackend = true;
+  await connectRows(page);
+  await page.click('#addBtn');
+  await page.fill('#fUrl', 'https://news.tvbs.com.tw/local/6100004');
+  await page.fill('#fOrig', '舊後端');
+  await page.fill('#fExp', dayStr(10));
+  await page.click('#save');
+  await page.waitForSelector('#dlg', { state: 'hidden' });
+  assert.match(await page.textContent('#toast'), /後端還沒更新/);
+  assert.ok(api.st.items.some((i) => i.id === '6100004'));
+  await page.fill('#q', '6100004');
+  assert.deepEqual(await rowIds(page), ['6100004']);                                         // 沒有 expires 欄位的資料照常顯示在主列表
 });

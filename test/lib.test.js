@@ -103,3 +103,28 @@ test('guessCategory：TVBS 第一層路徑對應分類；不認識或分類不�
   assert.equal(g('https://news.tvbs.com.tw/health/1', ['社會']), null);
   assert.equal(g(undefined), null);
 });
+
+/* ---------- 到期日 ---------- */
+const TPE = (y, m, d, hh = 0, mm = 0) => Date.UTC(y, m - 1, d, hh - 8, mm);   // 台北時間 → 毫秒
+
+test('isDateStr：只收真實存在的 YYYY-MM-DD', () => {
+  for (const ok of ['2026-10-15', '2024-02-29', '2000-01-01']) assert.equal(lib.isDateStr(ok), true, ok);
+  for (const bad of ['2026-02-30', '2025-02-29', '2026-13-01', '2026-00-10', '2026-1-5', '2026/10/15', ' 2026-10-15', '2026-10-15T00:00', '', null, undefined, 20261015, {}]) {
+    assert.equal(lib.isDateStr(bad), false, String(bad));
+  }
+});
+
+test('dateStrTaipei：以台北時間（UTC+8）換算日期', () => {
+  assert.equal(lib.dateStrTaipei(TPE(2026, 10, 15, 0, 0)), '2026-10-15');
+  assert.equal(lib.dateStrTaipei(TPE(2026, 10, 15, 23, 59)), '2026-10-15');
+  assert.equal(lib.dateStrTaipei(TPE(2026, 10, 15, 0, 0) - 1), '2026-10-14');
+  assert.equal(lib.dateStrTaipei(Date.UTC(2026, 9, 14, 16, 0)), '2026-10-15');   // UTC 16:00 = 台北隔天 00:00
+});
+
+test('isExpired：到期日當天 00:00（台北）起算已到期；沒設或格式不對都不算', () => {
+  assert.equal(lib.isExpired('2026-10-15', TPE(2026, 10, 14, 23, 59)), false);
+  assert.equal(lib.isExpired('2026-10-15', TPE(2026, 10, 15, 0, 0)), true);
+  assert.equal(lib.isExpired('2026-10-15', TPE(2026, 10, 15, 12, 0)), true);
+  assert.equal(lib.isExpired('2026-10-15', TPE(2026, 12, 1)), true);
+  for (const none of [null, undefined, '', 'abc', '2026-02-30']) assert.equal(lib.isExpired(none, TPE(2030, 1, 1)), false, String(none));
+});
