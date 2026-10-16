@@ -9,7 +9,7 @@
     items: [], cats: [], status: 'idle', error: '', cat: '全部', expired: false, q: '', sort: 'oldest', size: loadSize(), page: 1,
     pos: {}, pendingMark: null, markTimer: null, busy: new Set(),
     editing: null, draft: [], removed: [], saving: false, delTimer: null,
-    fetchSeq: 0, lastFetchUrl: null, origTouched: false, catTouched: false,
+    fetchSeq: 0, autoFetched: false, origTouched: false, catTouched: false,
     sel: null, copied: null
   };
   var MOBILE = window.matchMedia ? window.matchMedia('(max-width: 820px)') : { matches: false };
@@ -732,7 +732,7 @@
     state.removed = [];
     state.saving = false;
     state.fetchSeq++;
-    state.lastFetchUrl = null;
+    state.autoFetched = false;
     state.origTouched = false;
     state.catTouched = false;
     state.draft = item && item.titles.length
@@ -812,21 +812,20 @@
     var url = normalizeUrl(raw);
     var guess = url && !state.catTouched ? guessCategory(url, allCats()) : null;
     if (guess) $('fCat').value = guess;
-    if (url && url !== state.lastFetchUrl && !state.origTouched && !$('fOrig').value.trim()) autofillTitle(url);
+    if (url && !state.autoFetched && !state.origTouched && !$('fOrig').value.trim()) { state.autoFetched = true; autofillTitle(url); }   // 自動只讀一次，失敗了改按「重新讀取」
   }
 
   function titleFailText(reason) {
-    var r = String(reason || '');
-    if (/^http_(401|403|429)$/.test(r)) return '對方網站擋下自動抓取（' + r.slice(5) + '），請手動輸入';
-    if (/^http_/.test(r)) return '對方網站回應異常（' + r.slice(5) + '），請手動輸入';
-    if (r === 'timeout') return '抓取逾時，請手動輸入或稍後再貼一次網址';
-    if (r === 'no_title') return '頁面抓到了但找不到標題，請手動輸入';
-    return '抓不到標題，請手動輸入';
+    var r = String(reason || ''), retry = '，可手動輸入，或按「重新讀取」再試一次';
+    if (/^http_(401|403|429)$/.test(r)) return '對方網站擋下自動抓取（' + r.slice(5) + '）' + retry;
+    if (/^http_/.test(r)) return '對方網站回應異常（' + r.slice(5) + '）' + retry;
+    if (r === 'timeout') return '抓取逾時' + retry;
+    if (r === 'no_title') return '頁面抓到了但找不到標題' + retry;
+    return '抓不到標題' + retry;
   }
 
   function autofillTitle(url, force) {   // force：使用者按「重新讀取」，直接覆蓋目前的標題
     var seq = ++state.fetchSeq;
-    state.lastFetchUrl = url;
     $('titleHint').textContent = '正在抓取標題…';
     callApi('fetchTitle', { url: url }).then(function (data) { return data || { title: null, reason: 'fetch_error' }; }, function (e) { return { title: null, reason: e && e.code === 'timeout' ? 'timeout' : 'fetch_error' }; })
       .then(function (data) {
@@ -837,6 +836,17 @@
         $('titleHint').textContent = '來自 ' + (data.source || '網頁');
       });
   }
+
+  document.addEventListener('paste', function (e) {   // 新增視窗開著、焦點不在輸入框時，直接貼上就當成貼網址
+    var el = e.target;
+    if (!$('dlg').open || state.editing || (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
+    var text = (e.clipboardData && e.clipboardData.getData('text') || '').trim();
+    if (!text) return;
+    e.preventDefault();
+    $('fUrl').value = text;
+    $('fUrl').focus();
+    checkUrl();
+  });
 
   $('reTitle').addEventListener('click', function () {
     var raw = $('fUrl').value.trim(), url = raw ? normalizeUrl(raw) : null;

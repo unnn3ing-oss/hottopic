@@ -1182,3 +1182,52 @@ test('標題旁的「重新讀取」：用目前網址重抓並覆蓋標題；�
   await page.click('#card [data-act=edit]');
   assert.equal(await page.locator('#reTitle').isHidden(), true);
 });
+
+test('新增：只在第一次貼網址時自動讀一次標題；失敗後不再自動重抓，提示改按「重新讀取」，按了用目前網址再試', async (t) => {
+  const { page, api } = await open(t);
+  api.st.titleResult = { title: null, reason: 'http_403' };
+  await connectRows(page);
+  const fetches = () => api.st.calls.filter((c) => c.action === 'fetchTitle');
+  await page.click('#addBtn');
+  await page.fill('#fUrl', 'https://news.tvbs.com.tw/local/6300001');
+  await page.waitForFunction(() => /403/.test(document.getElementById('titleHint').textContent));
+  assert.equal(fetches().length, 1);
+  assert.match(await page.textContent('#titleHint'), /重新讀取/);                              // 失敗提示指向重試的方法
+  await page.fill('#fUrl', 'https://news.tvbs.com.tw/local/6300002');                        // 改網址不會自動再抓
+  await page.waitForTimeout(900);
+  assert.equal(fetches().length, 1);
+  assert.equal(await page.inputValue('#fOrig'), '');
+  api.st.titleResult = { title: '重試成功的標題', source: 'og:title' };
+  await page.click('#reTitle');
+  await page.waitForFunction(() => document.getElementById('fOrig').value === '重試成功的標題');
+  assert.equal(fetches().length, 2);
+  assert.equal(fetches()[1].args.url, 'https://news.tvbs.com.tw/local/6300002');
+  await page.click('#cancel');                                                                // 重新開啟視窗又是新的一次
+  api.st.titleResult = { title: '第二次開啟', source: 'og:title' };
+  await page.click('#addBtn');
+  await page.fill('#fUrl', 'https://news.tvbs.com.tw/local/6300003');
+  await page.waitForFunction(() => document.getElementById('fOrig').value === '第二次開啟');
+  assert.equal(fetches().length, 3);
+});
+
+test('新增：游標在網址欄；就算焦點不在輸入框（例如點到視窗空白處），直接貼上也會填進網址並自動帶入標題', async (t) => {
+  const { page } = await open(t);
+  await connectRows(page);
+  assert.equal(await page.locator('#fUrl').getAttribute('autofocus'), '');                   // 原生 autofocus：各瀏覽器開啟視窗時都落在網址欄
+  await page.evaluate(() => navigator.clipboard.writeText('  https://news.tvbs.com.tw/local/6400001  '));
+  await page.click('#addBtn');
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'fUrl');
+  await page.evaluate(() => document.activeElement.blur());                                  // 模擬焦點跑掉
+  await page.click('#dlgTitle');
+  assert.notEqual(await page.evaluate(() => document.activeElement.id), 'fUrl');
+  await page.keyboard.press('Control+V');
+  assert.equal(await page.inputValue('#fUrl'), 'https://news.tvbs.com.tw/local/6400001');
+  await page.waitForFunction(() => document.getElementById('fOrig').value === '自動帶入的原始標題');
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'fUrl');
+  await page.click('#cancel');
+  await pick(page, '4031880');                                                               // 編輯時不攔截貼上
+  await page.click('#card [data-act=edit]');
+  await page.click('#dlgTitle');
+  await page.keyboard.press('Control+V');
+  assert.equal(await page.inputValue('#fUrl'), 'https://news.tvbs.com.tw/local/4031880');
+});
