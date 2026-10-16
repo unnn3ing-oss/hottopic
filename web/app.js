@@ -743,8 +743,9 @@
     $('fOrig').value = item ? item.orig : ''; $('fOrig').readOnly = !!item;
     fillCats(item ? item.cat : allCats()[0]);
     $('fNote').value = item ? item.note : '';
-    $('usedBox').hidden = !!item;                       // 使用狀態只在新增時填；之後靠「標記已使用」累計
+    $('usedBox').hidden = !!item && item.last != null;   // 新增，或編輯「從未使用」的新聞時才能填；已有紀錄的靠「標記已使用」累計
     $('fUsed0').checked = true; $('fLast').value = ''; $('lastRow').hidden = true;
+    $('reTitle').hidden = !!item;
     $('fExp').value = item && item.expires ? item.expires : '';
     syncExpHint();
     $('titleHint').textContent = '';
@@ -755,11 +756,20 @@
     renderVars();
     checkUrl();
     if (!$('dlg').open) $('dlg').showModal();
+    if (!item) $('fUrl').focus();                       // 欄位順序改過，第一個可聚焦的是分類；新增時仍讓游標停在網址
   }
 
-  function localInputValue(ms) {   // 毫秒 → datetime-local 的值（瀏覽器所在時區，到分）
+  function localInputValue(ms) {   // 毫秒 → 'YYYY/MM/DD HH:mm'（瀏覽器所在時區，24 小時制）
     var d = new Date(ms);
-    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+    return d.getFullYear() + '/' + pad(d.getMonth() + 1) + '/' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+  }
+  function parseLocalText(text) {   // 'YYYY/MM/DD HH:mm'（已通過 normalizeDateTimeText）→ 毫秒（瀏覽器所在時區）
+    var m = /^(\d{4})\/(\d{2})\/(\d{2}) (\d{2}):(\d{2})$/.exec(text);
+    return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]).getTime();
+  }
+  function formatLastField() {   // 12 碼數字等合規輸入轉成標準格式；不合規的保持原樣讓使用者修改
+    var f = $('fLast'), n = normalizeDateTimeText(f.value);
+    if (n) f.value = n;
   }
   function syncUsed() {
     var used = $('fUsed1').checked;
@@ -772,6 +782,8 @@
     hint.hidden = !past;
     hint.textContent = past ? '這個日期是今天或更早，儲存後會直接放進「已到期」，不會出現在主列表。' : '';
   }
+  $('fLast').addEventListener('input', function () { if (/^\d{12}$/.test($('fLast').value.trim())) formatLastField(); });
+  $('fLast').addEventListener('blur', formatLastField);
   $('fUsed0').addEventListener('change', syncUsed);
   $('fUsed1').addEventListener('change', syncUsed);
   $('fExp').addEventListener('input', syncExpHint);
@@ -812,7 +824,7 @@
     return '抓不到標題，請手動輸入';
   }
 
-  function autofillTitle(url) {
+  function autofillTitle(url, force) {   // force：使用者按「重新讀取」，直接覆蓋目前的標題
     var seq = ++state.fetchSeq;
     state.lastFetchUrl = url;
     $('titleHint').textContent = '正在抓取標題…';
@@ -820,11 +832,17 @@
       .then(function (data) {
         if (seq !== state.fetchSeq) return;                    // 晚到的結果丟棄
         if (!data.title) { $('titleHint').textContent = titleFailText(data.reason); return; }
-        if (state.origTouched || $('fOrig').value.trim()) { $('titleHint').textContent = ''; return; }
+        if (!force && (state.origTouched || $('fOrig').value.trim())) { $('titleHint').textContent = ''; return; }
         $('fOrig').value = data.title;
         $('titleHint').textContent = '來自 ' + (data.source || '網頁');
       });
   }
+
+  $('reTitle').addEventListener('click', function () {
+    var raw = $('fUrl').value.trim(), url = raw ? normalizeUrl(raw) : null;
+    if (!url) { state.fetchSeq++; $('titleHint').textContent = raw ? '網址格式不正確，無法讀取標題。' : '請先填上網址再讀取標題。'; return; }
+    autofillTitle(url, true);
+  });
 
   var urlTimer = null;
   $('fUrl').addEventListener('input', function () { clearTimeout(urlTimer); urlTimer = setTimeout(checkUrl, 400); });
@@ -867,10 +885,12 @@
     if (!cat) { setErr('請選擇分類。'); return; }
     var exp = $('fExp').value, last;
     if (exp && !isDateStr(exp)) { setErr('到期日格式不正確。'); return; }
-    if (!it && $('fUsed1').checked) {
-      if (!$('fLast').value) { setErr('請填上次使用時間。'); return; }
-      last = new Date($('fLast').value).getTime();
-      if (!isFinite(last)) { setErr('上次使用時間格式不正確。'); return; }
+    if ((!it || it.last == null) && $('fUsed1').checked) {
+      if (!$('fLast').value.trim()) { setErr('請填上次使用時間。'); return; }
+      var lastText = normalizeDateTimeText($('fLast').value);
+      if (!lastText) { setErr('上次使用時間格式不正確，請輸入 12 碼數字（例如 202612192105）或 YYYY/MM/DD HH:mm。'); return; }
+      $('fLast').value = lastText;
+      last = parseLocalText(lastText);
       if (last > Date.now() + 5 * 60000) { setErr('上次使用時間不能在未來。'); return; }
     }
     setErr('');
@@ -892,6 +912,7 @@
         else if (t !== v.orig) edit.push({ ver: v.ver, t: t });
       });
       req = { id: it.id, cat: cat, note: note, edit: edit, add: add, remove: remove };
+      if (last !== undefined) req.last = last;
       if ((it.expires || null) !== (exp || null)) req.expires = exp || null;   // 沒改就不送，少寫一次試算表
     }
     state.saving = true; $('save').disabled = true; $('save').textContent = '儲存中…';

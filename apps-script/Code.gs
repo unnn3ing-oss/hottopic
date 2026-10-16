@@ -267,6 +267,7 @@ function updateItem_(args) {
   });
   var add = textList_(args.add);
   var setExpires = args.expires !== undefined, expires = optExpires_(args.expires);
+  var last = optLast_(args.last, new Date().getTime());   // 只對「從未使用」的新聞生效：補記為已使用 1 次
   var db = db_();
   return withLock_(function () {
     var all = readAll_(db), item = all.byId[id];
@@ -279,6 +280,10 @@ function updateItem_(args) {
     var row = all.newsRow[id];
     writeText_(db.news, row, 2, [[cat, item.orig, item.url, note]]);   // 第 2–5 欄一次寫入（原始標題與網址原值寫回）
     if (setExpires) { writeText_(db.news, row, 9, [[expires || '']]); item.expires = expires; }
+    if (last !== null && item.last === null) {   // 已有使用紀錄就忽略（之後用「標記已使用」累計）
+      writeBlock_(db.news, row, 6, [DATE_FORMAT, FMT_NUM], [[new Date(last), 1]]);
+      item.last = last; item.count = 1;
+    }
     edits.forEach(function (e) { writeText_(db.edits, all.verRow[id][e.ver], 3, [[e.t]]); });
     remove.map(function (v) { return all.verRow[id][v]; }).sort(function (a, b) { return b - a; })
       .forEach(function (r) { db.edits.deleteRow(r); });

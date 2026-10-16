@@ -913,7 +913,7 @@ test('到期日：編輯時改成未來日期就回到主列表；清除也可�
   await pick(page, '6000001');
   await page.click('#card [data-act=edit]');
   assert.equal(await page.inputValue('#fExp'), dayStr(-5));
-  assert.equal(await page.locator('#usedBox').isHidden(), true);                             // 編輯時不能改「使用狀態」
+  assert.equal(await page.locator('#usedBox').isVisible(), true);                            // 從未使用的新聞，編輯時可補記「使用狀態」
   await page.fill('#fExp', dayStr(30));
   await page.click('#save');
   await page.waitForSelector('#dlg', { state: 'hidden' });
@@ -970,10 +970,11 @@ test('新增：選「已使用過」填上次使用時間與到期日 → 記為
   await page.fill('#fOrig', '同事發過的新聞');
   await page.check('#fUsed1');
   assert.equal(await page.locator('#lastRow').isVisible(), true);
-  assert.ok((await page.inputValue('#fLast')) !== '');                                       // 預設帶入現在，免得每次都要填
+  assert.match(await page.inputValue('#fLast'), /^\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}$/);          // 預設帶入現在（24 小時制），免得每次都要填
   const past = new Date(Date.now() - 2 * 864e5);
   const local = lib.dateStrTaipei(past.getTime()) + 'T09:30';
-  await page.fill('#fLast', local);
+  await page.fill('#fLast', local.slice(0, 4) + local.slice(5, 7) + local.slice(8, 10) + '0930');   // 直接輸入 12 碼
+  assert.equal(await page.inputValue('#fLast'), local.slice(0, 4) + '/' + local.slice(5, 7) + '/' + local.slice(8, 10) + ' 09:30');
   await page.fill('#fExp', dayStr(10));
   await page.click('#save');
   await page.waitForSelector('#dlg', { state: 'hidden' });
@@ -996,9 +997,15 @@ test('新增：選「已使用過」但時間留空或在未來 → 顯示錯誤
   await page.fill('#fLast', '');
   await page.click('#save');
   assert.match(await page.textContent('#err'), /上次使用時間/);
-  await page.fill('#fLast', dayStr(3) + 'T09:00');
+  await page.fill('#fLast', dayStr(3).replace(/-/g, '') + '0900');
   await page.click('#save');
   assert.match(await page.textContent('#err'), /未來/);
+  await page.fill('#fLast', '202613011200');                                                 // 13 月不存在
+  await page.click('#save');
+  assert.match(await page.textContent('#err'), /格式/);
+  await page.fill('#fLast', '2026121921');                                                   // 位數不足
+  await page.click('#save');
+  assert.match(await page.textContent('#err'), /格式/);
   assert.equal(api.st.calls.filter((c) => c.action === 'addItem').length, 0);
   await page.check('#fUsed0');                                                               // 改回「未使用」就不檢查時間
   await page.click('#save');
@@ -1033,4 +1040,145 @@ test('後端還沒更新：照樣存下新聞，但明確提示到期日／使�
   assert.ok(api.st.items.some((i) => i.id === '6100004'));
   await page.fill('#q', '6100004');
   assert.deepEqual(await rowIds(page), ['6100004']);                                         // 沒有 expires 欄位的資料照常顯示在主列表
+});
+
+const order = (page, ids) => page.evaluate((list) => {
+  const els = list.map((id) => document.getElementById(id));
+  return els.every((e, i) => i === 0 || (els[i - 1].compareDocumentPosition(e) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0);
+}, ids);
+
+test('新增／編輯視窗欄位順序：分類 → 原始標題 → 網址 → 改標 → 小編文 → 使用狀態 → 到期日', async (t) => {
+  const { page } = await open(t);
+  await connectRows(page);
+  await page.click('#addBtn');
+  assert.equal(await order(page, ['fCat', 'fOrig', 'fUrl', 'vars', 'fNote', 'usedBox', 'fExp']), true);
+  await page.click('#cancel');
+  await pick(page, '4031880');
+  await page.click('#card [data-act=edit]');
+  assert.equal(await order(page, ['fCat', 'fOrig', 'fUrl', 'vars', 'fNote', 'usedBox', 'fExp']), true);
+});
+
+test('新增：開啟後游標停在網址欄；貼網址仍自動帶入標題與分類', async (t) => {
+  const { page } = await open(t);
+  await connectRows(page);
+  await page.click('#addBtn');
+  assert.equal(await page.evaluate(() => document.activeElement && document.activeElement.id), 'fUrl');
+  await page.keyboard.type('https://news.tvbs.com.tw/health/6200001');
+  await page.waitForFunction(() => document.getElementById('fOrig').value === '自動帶入的原始標題');
+  assert.equal(await page.inputValue('#fCat'), '健康');
+});
+
+test('上次使用時間：輸入 12 碼數字，離開欄位或滿 12 碼就轉成 YYYY/MM/DD HH:mm（24 小時制），並以台北時間送出', async (t) => {
+  const { page, api } = await open(t);
+  await connectRows(page);
+  await page.click('#addBtn');
+  await page.fill('#fUrl', 'https://news.tvbs.com.tw/local/6200002');
+  await page.fill('#fOrig', '24 小時制');
+  await page.check('#fUsed1');
+  assert.equal(await page.getAttribute('#fLast', 'type'), 'text');
+  const y = new Date(Date.now() - 864e5);
+  const ds = lib.dateStrTaipei(y.getTime()), digits = ds.replace(/-/g, '');
+  await page.fill('#fLast', '');
+  await page.type('#fLast', digits + '2105');                                                // 逐字輸入，滿 12 碼自動轉
+  assert.equal(await page.inputValue('#fLast'), ds.replace(/-/g, '/') + ' 21:05');
+  await page.fill('#fLast', digits + '0000');
+  await page.locator('#fExp').focus();                                                        // 離開欄位也會轉
+  assert.equal(await page.inputValue('#fLast'), ds.replace(/-/g, '/') + ' 00:00');
+  await page.fill('#fLast', digits + '2105');
+  await page.click('#save');
+  await page.waitForSelector('#dlg', { state: 'hidden' });
+  const args = api.st.calls.filter((c) => c.action === 'addItem')[0].args;
+  const [yy, mm, dd] = ds.split('-').map(Number);
+  assert.equal(args.last, Date.UTC(yy, mm - 1, dd, 21 - 8, 5));
+  await page.fill('#q', '6200002');
+  assert.match(await page.locator('#card .used').textContent(), new RegExp(ds.replace(/-/g, '/') + ' 21:05'));
+});
+
+test('編輯：從未使用的新聞可補記「已使用過」，記為 1 次；已有使用紀錄的新聞不顯示這個區塊', async (t) => {
+  const { page, api } = await open(t);
+  await connectRows(page);
+  await pick(page, '4032757');                                                               // 已用過
+  await page.click('#card [data-act=edit]');
+  assert.equal(await page.locator('#usedBox').isHidden(), true);
+  await page.click('#cancel');
+  await pick(page, '4031880');                                                               // 從未使用
+  await page.click('#card [data-act=edit]');
+  assert.equal(await page.locator('#usedBox').isVisible(), true);
+  assert.equal(await page.isChecked('#fUsed0'), true);
+  await page.click('#save');                                                                 // 維持「未使用」：不送 last
+  await page.waitForSelector('#dlg', { state: 'hidden' });
+  assert.ok(!('last' in api.st.calls.filter((c) => c.action === 'updateItem')[0].args));
+  await pick(page, '4031880');
+  await page.click('#card [data-act=edit]');
+  await page.check('#fUsed1');
+  const ds = lib.dateStrTaipei(Date.now() - 2 * 864e5);
+  await page.fill('#fLast', ds.replace(/-/g, '') + '0930');
+  await page.click('#save');
+  await page.waitForSelector('#dlg', { state: 'hidden' });
+  const upd = api.st.calls.filter((c) => c.action === 'updateItem')[1].args;
+  const [yy, mm, dd] = ds.split('-').map(Number);
+  assert.equal(upd.last, Date.UTC(yy, mm - 1, dd, 1, 30));
+  const saved = api.st.items.find((i) => i.id === '4031880');
+  assert.deepEqual([saved.count, saved.last], [1, upd.last]);
+  assert.match(await page.locator('#card .used').textContent(), /共 1 次/);
+  await page.click('#card [data-act=edit]');                                                  // 已有紀錄後不再顯示
+  assert.equal(await page.locator('#usedBox').isHidden(), true);
+});
+
+test('編輯補記「已使用過」：時間格式不對或在未來 → 顯示錯誤、不送出', async (t) => {
+  const { page, api } = await open(t);
+  await connectRows(page);
+  await pick(page, '4031880');
+  await page.click('#card [data-act=edit]');
+  await page.check('#fUsed1');
+  await page.fill('#fLast', '99999999');
+  await page.click('#save');
+  assert.match(await page.textContent('#err'), /格式/);
+  await page.fill('#fLast', dayStr(2).replace(/-/g, '') + '1000');
+  await page.click('#save');
+  assert.match(await page.textContent('#err'), /未來/);
+  assert.equal(api.st.calls.filter((c) => c.action === 'updateItem').length, 0);
+});
+
+test('編輯補記「已使用過」遇到舊後端：明確提示使用紀錄沒有存到', async (t) => {
+  const { page, api } = await open(t);
+  api.st.legacyBackend = true;
+  await connectRows(page);
+  await pick(page, '4031880');
+  await page.click('#card [data-act=edit]');
+  await page.check('#fUsed1');
+  await page.click('#save');
+  await page.waitForSelector('#dlg', { state: 'hidden' });
+  assert.match(await page.textContent('#toast'), /後端還沒更新/);
+});
+
+test('標題旁的「重新讀取」：用目前網址重抓並覆蓋標題；網址空白或不合規會提示；編輯時不顯示', async (t) => {
+  const { page, api } = await open(t);
+  await connectRows(page);
+  const fetches = () => api.st.calls.filter((c) => c.action === 'fetchTitle');
+  await page.click('#addBtn');
+  assert.equal(await page.locator('#reTitle').isVisible(), true);
+  await page.click('#reTitle');                                                               // 空網址
+  assert.match(await page.textContent('#titleHint'), /網址/);
+  assert.equal(fetches().length, 0);
+  await page.fill('#fUrl', 'not a url');
+  await page.click('#reTitle');
+  assert.match(await page.textContent('#titleHint'), /網址/);
+  assert.equal(fetches().length, 0);
+  await page.fill('#fUrl', 'https://news.tvbs.com.tw/local/6200003');
+  await page.waitForFunction(() => document.getElementById('fOrig').value === '自動帶入的原始標題');
+  assert.equal(fetches().length, 1);
+  await page.fill('#fOrig', '我手動改過的標題');
+  api.st.titleResult = { title: '重新抓到的新標題', source: 'og:title' };
+  await page.click('#reTitle');
+  await page.waitForFunction(() => document.getElementById('fOrig').value === '重新抓到的新標題');   // 覆蓋手動輸入
+  assert.equal(fetches().length, 2);
+  api.st.titleResult = { title: null, reason: 'http_403' };
+  await page.click('#reTitle');
+  await page.waitForFunction(() => /403/.test(document.getElementById('titleHint').textContent));
+  assert.equal(await page.inputValue('#fOrig'), '重新抓到的新標題');                              // 抓失敗不清掉原本的
+  await page.click('#cancel');
+  await pick(page, '4031880');
+  await page.click('#card [data-act=edit]');
+  assert.equal(await page.locator('#reTitle').isHidden(), true);
 });

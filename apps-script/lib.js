@@ -90,6 +90,20 @@ function isExpired(expires, nowMs) {
   return isDateStr(expires) && dateStrTaipei(nowMs) >= expires;
 }
 
+/* ---------- 24 小時制時間輸入（「已使用過」的上次使用時間）：回 'YYYY/MM/DD HH:mm'，不合規回 null ---------- */
+function normalizeDateTimeText(s) {
+  if (typeof s !== 'string') return null;
+  var t = s.trim(), m = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})$/.exec(t) ||
+    /^(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})[ T](\d{1,2}):(\d{2})$/.exec(t);
+  if (!m) return null;
+  var y = Number(m[1]), mo = Number(m[2]), d = Number(m[3]), h = Number(m[4]), mi = Number(m[5]);
+  if (h > 23 || mi > 59) return null;
+  var c = new Date(Date.UTC(y, mo - 1, d));
+  if (c.getUTCFullYear() !== y || c.getUTCMonth() !== mo - 1 || c.getUTCDate() !== d) return null;
+  var p2 = function (n) { return (n < 10 ? '0' : '') + n; };
+  return m[1] + '/' + p2(mo) + '/' + p2(d) + ' ' + p2(h) + ':' + p2(mi);
+}
+
 /* ---------- 標題抽取（Apps Script 伺服器端用；沒有 DOMParser，改用規則運算式） ---------- */
 var TITLE_SOURCES = ['og:title', 'twitter:title', 'title', 'h1'];
 var SITE_SUFFIXES = [];                 // 已知網站名稱後綴；預設空（規格：不先猜）
@@ -182,7 +196,7 @@ if (typeof module !== 'undefined' && module.exports) {
     COMMENT_BASE_URL: COMMENT_BASE_URL, LIMITS: LIMITS, extractId: extractId, isHttpUrl: isHttpUrl,
     normalizeUrl: normalizeUrl, nextSerialId: nextSerialId, normalizeText: normalizeText,
     normalizeLine: normalizeLine, buildComment: buildComment,
-    TAIPEI_OFFSET_MS: TAIPEI_OFFSET_MS, isDateStr: isDateStr, dateStrTaipei: dateStrTaipei, isExpired: isExpired,
+    TAIPEI_OFFSET_MS: TAIPEI_OFFSET_MS, isDateStr: isDateStr, dateStrTaipei: dateStrTaipei, isExpired: isExpired, normalizeDateTimeText: normalizeDateTimeText,
     TITLE_SOURCES: TITLE_SOURCES, SITE_SUFFIXES: SITE_SUFFIXES, HTML_SCAN_LIMIT: HTML_SCAN_LIMIT,
     cleanTitle: cleanTitle, titleFromHtml: titleFromHtml, CATEGORY_RULES: CATEGORY_RULES, guessCategory: guessCategory
   };

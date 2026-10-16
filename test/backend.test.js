@@ -407,9 +407,37 @@ test('updateItem 的 expires：設定、沒帶＝不動、null 或空字串＝�
   assert.equal(s.list().items[0].expires, null);
 });
 
+test('updateItem 的 last：從未使用的新聞可補記為已使用 1 次；已有使用紀錄則忽略；不合規 bad_request', () => {
+  const s = setup(); add(s);
+  const upd = (extra) => s.call('updateItem', Object.assign({ id: '4032757', cat: '生活', note: 'n' }, extra));
+  const last = s.gas.now - 2 * 864e5;
+  assert.equal(code(upd({ last: s.gas.now + 3600e3 })), 'bad_request');   // 未來
+  assert.equal(code(upd({ last: 'x' })), 'bad_request');
+  assert.equal(code(upd({ last: 5 })), 'bad_request');                     // 早於 2000 年
+  assert.deepEqual([s.list().items[0].last, s.list().items[0].count], [null, 0]);   // 失敗不寫入
+  const r = upd({ last });
+  assert.equal(r.ok, true);
+  assert.deepEqual([r.data.item.last, r.data.item.count], [last, 1]);
+  assert.ok(sheetCell(s, 2, 6) instanceof Date);
+  assert.equal(sheetCell(s, 2, 7), 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(s.list().items[0])), JSON.parse(JSON.stringify(r.data.item)));
+  // 已有使用紀錄：忽略，不覆蓋
+  const r2 = upd({ last: s.gas.now - 864e5 });
+  assert.equal(r2.ok, true);
+  assert.deepEqual([r2.data.item.last, r2.data.item.count], [last, 1]);
+  assert.equal(sheetCell(s, 2, 7), 1);
+});
+
+test('updateItem 沒帶 last 或 last 為 null：不動使用紀錄', () => {
+  const s = setup(); add(s);
+  const upd = (extra) => s.call('updateItem', Object.assign({ id: '4032757', cat: '生活', note: 'n' }, extra));
+  assert.deepEqual([upd({}).data.item.last, upd({ last: null }).data.item.count], [null, 0]);
+});
+
 test('新增與更新帶到期日時，試算表呼叫次數仍在上限內', () => {
   const s = setup(); s.call('ping');
   const calls = (fn) => { const b = s.gas.calls.sheetCalls; const r = fn(); assert.equal(r.ok, true); return s.gas.calls.sheetCalls - b; };
   assert.ok(calls(() => add(s, { url: 'https://news.tvbs.com.tw/local/777', titles: ['a', 'b', 'c'], expires: '2026-12-01', last: s.gas.now - MIN })) <= 10, 'addItem');
   assert.ok(calls(() => s.call('updateItem', { id: '777', cat: '社會', note: 'x', expires: '2026-12-02' })) <= 11, 'updateItem');
+  assert.ok(calls(() => s.call('updateItem', { id: '777', cat: '社會', note: 'x', expires: '2026-12-02', last: s.gas.now - MIN })) <= 12, 'updateItem 含 last');
 });

@@ -40,6 +40,7 @@ function createFakeApi(opts = {}) {
       if ((a.edit || []).some((e) => !vers(e.ver)) || (a.remove || []).some((x) => !vers(x))) return bad('stale');
       it.cat = a.cat; it.note = a.note;
       if (!st.legacyBackend && a.expires !== undefined) it.expires = a.expires || null;
+      if (!st.legacyBackend && a.last != null && it.last == null) { it.last = a.last; it.count = 1; }   // 只對從未使用的新聞生效
       (a.edit || []).forEach((e) => { it.titles.find((v) => v.ver === e.ver).t = e.t; });
       const max = it.titles.reduce((m, v) => Math.max(m, v.ver), 0);
       it.titles = it.titles.filter((v) => !(a.remove || []).includes(v.ver));
