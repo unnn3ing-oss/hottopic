@@ -128,3 +128,20 @@ test('isExpired：到期日當天 00:00（台北）起算已到期；沒設或�
   assert.equal(lib.isExpired('2026-10-15', TPE(2026, 12, 1)), true);
   for (const none of [null, undefined, '', 'abc', '2026-02-30']) assert.equal(lib.isExpired(none, TPE(2030, 1, 1)), false, String(none));
 });
+
+test('normalizeDateTimeText：12 碼數字或 YYYY/MM/DD HH:mm，24 小時制，回標準格式；不合規回 null', () => {
+  const n = lib.normalizeDateTimeText;
+  assert.equal(n('202612192105'), '2026/12/19 21:05');
+  assert.equal(n('  202612192105  '), '2026/12/19 21:05');
+  assert.equal(n('2026/12/19 21:05'), '2026/12/19 21:05');
+  assert.equal(n('2026/1/9 7:05'), '2026/01/09 07:05');
+  assert.equal(n('2026-12-19 21:05'), '2026/12/19 21:05');
+  assert.equal(n('2026-12-19T21:05'), '2026/12/19 21:05');
+  assert.equal(n('202601010000'), '2026/01/01 00:00');
+  assert.equal(n('202612312359'), '2026/12/31 23:59');
+  for (const bad of ['', '   ', '2026121921', '20261219210', '2026121921055', '202612192405', '202612192160', '202613011200',
+    '202602301200', '202502290000', '2026/12/19', '2026/12/19 9pm', '2026/12/19 21:5', 'abcdefghijkl', null, undefined, 20261219210, '2026/12/19 21:05:30']) {
+    assert.equal(n(bad), null, String(bad));
+  }
+  assert.equal(n('202402290000'), '2024/02/29 00:00');   // 閏日
+});
