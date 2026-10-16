@@ -837,6 +837,17 @@
       });
   }
 
+  document.addEventListener('paste', function (e) {   // 新增視窗開著、焦點不在輸入框時，直接貼上就當成貼網址
+    var el = e.target;
+    if (!$('dlg').open || state.editing || (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
+    var text = (e.clipboardData && e.clipboardData.getData('text') || '').trim();
+    if (!text) return;
+    e.preventDefault();
+    $('fUrl').value = text;
+    $('fUrl').focus();
+    checkUrl();
+  });
+
   $('reTitle').addEventListener('click', function () {
     var raw = $('fUrl').value.trim(), url = raw ? normalizeUrl(raw) : null;
     if (!url) { state.fetchSeq++; $('titleHint').textContent = raw ? '網址格式不正確，無法讀取標題。' : '請先填上網址再讀取標題。'; return; }
