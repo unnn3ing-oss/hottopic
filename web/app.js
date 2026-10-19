@@ -830,21 +830,12 @@
     el.hidden = !text;
     el.className = 'pill' + (kind ? ' ' + kind : '');
   }
-  function titleFailBrief(reason) {
-    var r = String(reason || '');
-    if (/^http_(401|403|429)$/.test(r)) return '對方網站擋下自動抓取（' + r.slice(5) + '）';
-    if (/^http_/.test(r)) return '對方網站回應異常（' + r.slice(5) + '）';
-    if (r === 'timeout') return '抓取逾時';
-    if (r === 'no_title') return '頁面抓到了但找不到標題';
-    return '抓不到標題';
-  }
-
   var RETRY_COOLDOWN_S = 5;
   function clearRetry() { clearInterval(state.retryTimer); state.retryTimer = null; }
-  function scheduleRetry(url, reason) {   // 第一次自動抓失敗：冷卻 5 秒後自動再抓一次（只一次）
+  function scheduleRetry(url) {   // 第一次自動抓失敗：冷卻 5 秒後自動再抓一次（只一次）
     clearRetry();
     var left = RETRY_COOLDOWN_S;
-    function show() { setTitleStatus(titleFailBrief(reason) + '，' + left + ' 秒後自動再試一次', 'warn'); }
+    function show() { setTitleStatus('抓不到標題，' + left + ' 秒後再試', 'warn'); }
     show();
     state.retryTimer = setInterval(function () {
       left--;
@@ -865,8 +856,8 @@
       .then(function (data) {
         if (seq !== state.fetchSeq) return;                    // 晚到的結果丟棄
         if (!data.title) {
-          if (mode === 'auto') scheduleRetry(url, data.reason);
-          else setTitleStatus(titleFailBrief(data.reason) + '，可手動輸入，或按「重新讀取」再試一次', 'warn');
+          if (mode === 'auto') scheduleRetry(url);
+          else setTitleStatus('抓不到標題，請按「重新讀取」', 'warn');
           return;
         }
         if (mode !== 'manual' && (state.origTouched || $('fOrig').value.trim())) { setTitleStatus(''); return; }

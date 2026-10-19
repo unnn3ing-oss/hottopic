@@ -1175,7 +1175,7 @@ test('標題旁的「重新讀取」：用目前網址重抓並覆蓋標題；�
   assert.equal(fetches().length, 2);
   api.st.titleResult = { title: null, reason: 'http_403' };
   await page.click('#reTitle');
-  await page.waitForFunction(() => /403/.test(document.getElementById('titleHint').textContent));
+  await page.waitForFunction(() => /抓不到/.test(document.getElementById('titleHint').textContent));
   assert.equal(await page.inputValue('#fOrig'), '重新抓到的新標題');                              // 抓失敗不清掉原本的
   await page.click('#cancel');
   await pick(page, '4031880');
@@ -1190,9 +1190,9 @@ test('新增：改網址不會再自動抓；冷卻期間按「重新讀取」�
   const fetches = () => api.st.calls.filter((c) => c.action === 'fetchTitle');
   await page.click('#addBtn');
   await page.fill('#fUrl', 'https://news.tvbs.com.tw/local/6300001');
-  await page.waitForFunction(() => /403/.test(document.getElementById('titleHint').textContent));
+  await page.waitForFunction(() => /抓不到/.test(document.getElementById('titleHint').textContent));
   assert.equal(fetches().length, 1);
-  assert.match(await page.textContent('#titleHint'), /秒後自動再試/);                          // 第一次失敗：冷卻後會自動再試一次
+  assert.match(await page.textContent('#titleHint'), /秒後再試/);                          // 第一次失敗：冷卻後會自動再試一次
   await page.fill('#fUrl', 'https://news.tvbs.com.tw/local/6300002');                        // 改網址不會自動再抓
   await page.waitForTimeout(900);
   assert.equal(fetches().length, 1);
@@ -1264,9 +1264,9 @@ test('新增：第一次沒抓到，冷卻 5 秒後自動再抓一次；再失�
   await connectRows(page);
   await page.click('#addBtn');
   await page.fill('#fUrl', 'https://news.tvbs.com.tw/local/6600001');
-  await page.waitForFunction(() => /403/.test(document.getElementById('titleHint').textContent));
+  await page.waitForFunction(() => /抓不到/.test(document.getElementById('titleHint').textContent));
   assert.equal(fetchCount(api), 1);
-  assert.match(await page.textContent('#titleHint'), /\d 秒後自動再試/);                      // 倒數中
+  assert.match(await page.textContent('#titleHint'), /\d 秒後再試/);                      // 倒數中
   await sleep(2000);
   assert.equal(fetchCount(api), 1);                                                          // 冷卻期間不會提早再抓
   api.st.titleResult = { title: null, reason: 'http_403' };
@@ -1275,7 +1275,7 @@ test('新增：第一次沒抓到，冷卻 5 秒後自動再抓一次；再失�
   assert.equal(fetchCount(api), 2);
   assert.ok(Date.now() - t0 >= 2500, '約 5 秒後才會再抓');
   await page.waitForFunction(() => /重新讀取/.test(document.getElementById('titleHint').textContent));
-  assert.doesNotMatch(await page.textContent('#titleHint'), /秒後自動再試/);                 // 自動重試只有一次
+  assert.doesNotMatch(await page.textContent('#titleHint'), /秒後再試/);                 // 自動重試只有一次
 });
 
 test('新增：冷卻後自動再抓成功就填入標題', async (t) => {
@@ -1284,7 +1284,7 @@ test('新增：冷卻後自動再抓成功就填入標題', async (t) => {
   await connectRows(page);
   await page.click('#addBtn');
   await page.fill('#fUrl', 'https://news.tvbs.com.tw/local/6600002');
-  await page.waitForFunction(() => /自動再試/.test(document.getElementById('titleHint').textContent));
+  await page.waitForFunction(() => /再試/.test(document.getElementById('titleHint').textContent));
   api.st.titleResult = { title: '第二次抓到了', source: 'og:title' };
   await page.waitForFunction(() => document.getElementById('fOrig').value === '第二次抓到了', null, { timeout: 9000 });
   assert.equal(fetchCount(api), 2);
@@ -1297,7 +1297,7 @@ test('新增：冷卻期間自己輸入了標題、或關掉視窗，就不會�
   await connectRows(page);
   await page.click('#addBtn');
   await page.fill('#fUrl', 'https://news.tvbs.com.tw/local/6600003');
-  await page.waitForFunction(() => /自動再試/.test(document.getElementById('titleHint').textContent));
+  await page.waitForFunction(() => /再試/.test(document.getElementById('titleHint').textContent));
   await page.fill('#fOrig', '我自己打的標題');
   await sleep(5600);
   assert.equal(fetchCount(api), 1);
@@ -1305,7 +1305,7 @@ test('新增：冷卻期間自己輸入了標題、或關掉視窗，就不會�
   await page.click('#cancel');
   await page.click('#addBtn');
   await page.fill('#fUrl', 'https://news.tvbs.com.tw/local/6600004');
-  await page.waitForFunction(() => /自動再試/.test(document.getElementById('titleHint').textContent));
+  await page.waitForFunction(() => /再試/.test(document.getElementById('titleHint').textContent));
   await page.click('#cancel');
   await sleep(5600);
   assert.equal(fetchCount(api), 2);                                                          // 第二次開啟只抓了第一次，關掉後沒再抓
