@@ -1231,3 +1231,26 @@ test('新增：游標在網址欄；就算焦點不在輸入框（例如點到�
   await page.keyboard.press('Control+V');
   assert.equal(await page.inputValue('#fUrl'), 'https://news.tvbs.com.tw/local/4031880');
 });
+
+test('新增：列表還在載入時就開啟視窗，載入完成後分類選單自動補上，並依網址選好分類', async (t) => {
+  const { page } = await open(t);
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  await page.route(API_URL + '/api', async (route) => {                                     // 讓 listItems 慢慢回（模擬 Apps Script 冷啟動）
+    if (/"action":"listItems"/.test(route.request().postData() || '')) await gate;
+    await route.fallback();
+  });
+  await page.fill('#sUrl', API_URL);
+  await page.fill('#sToken', PASSWORD);
+  await page.click('#sSave');
+  await page.waitForSelector('#settingsDlg', { state: 'hidden' });
+  await page.click('#addBtn');
+  assert.equal(await page.locator('#fCat option').count(), 0);                                // 還沒載完：沒有可選的分類
+  assert.match(await page.textContent('#err'), /分類清單還沒載入/);                              // 並明說原因，不是默默給空選單
+  await page.fill('#fUrl', 'https://news.tvbs.com.tw/health/6500001');
+  release();
+  await page.waitForFunction(() => document.querySelectorAll('#fCat option').length > 0);
+  assert.deepEqual(await page.$$eval('#fCat option', (o) => o.map((x) => x.value)), ['社會', '生活', '健康', '政治', '國際', '娛樂']);
+  assert.equal(await page.inputValue('#fCat'), '健康');                                       // 補上後依網址自動選好
+  assert.equal(await page.locator('#err').isHidden(), true);
+});
