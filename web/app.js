@@ -121,6 +121,7 @@
       state.cats = data.cats || [];
       state.status = 'ready';
       render();
+      if ($('dlg').open) refreshDialogCats();   // 載入慢、視窗先開了：補上分類選單（並重新依網址判斷分類）
     }).catch(function (e) {
       state.status = 'error';
       state.error = e && e.message ? e.message : '載入失敗。';
@@ -689,6 +690,13 @@
     if (selected) sel.value = selected;
   }
 
+  function refreshDialogCats() {
+    var cur = $('fCat').value;
+    fillCats(cur || (state.editing ? state.editing.cat : allCats()[0]));
+    if (allCats().length) setErr('');
+    if (!state.editing) checkUrl();
+  }
+
   function renderVars() {
     var box = $('vars'), d = state.draft;
     box.replaceChildren.apply(box, d.map(function (v, i) {
@@ -749,7 +757,7 @@
     $('fExp').value = item && item.expires ? item.expires : '';
     syncExpHint();
     $('titleHint').textContent = '';
-    setErr('');
+    setErr(allCats().length ? '' : '分類清單還沒載入完成，請稍候；若一直沒出現，請重新整理頁面。');
     resetDel();
     $('del').hidden = !item;
     $('save').disabled = false;
