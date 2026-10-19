@@ -756,7 +756,8 @@
     $('reTitle').hidden = !!item;
     $('fExp').value = item && item.expires ? item.expires : '';
     syncExpHint();
-    $('titleHint').textContent = '';
+    clearRetry();
+    setTitleStatus('');
     setErr(allCats().length ? '' : '分類清單還沒載入完成，請稍候；若一直沒出現，請重新整理頁面。');
     resetDel();
     $('del').hidden = !item;
@@ -820,28 +821,48 @@
     var url = normalizeUrl(raw);
     var guess = url && !state.catTouched ? guessCategory(url, allCats()) : null;
     if (guess) $('fCat').value = guess;
-    if (url && !state.autoFetched && !state.origTouched && !$('fOrig').value.trim()) { state.autoFetched = true; autofillTitle(url); }   // 自動只讀一次，失敗了改按「重新讀取」
+    if (url && !state.autoFetched && !state.origTouched && !$('fOrig').value.trim()) { state.autoFetched = true; autofillTitle(url, 'auto'); }   // 自動只讀一次，失敗了改按「重新讀取」
   }
 
-  function titleFailText(reason) {
-    var r = String(reason || ''), retry = '，可手動輸入，或按「重新讀取」再試一次';
-    if (/^http_(401|403|429)$/.test(r)) return '對方網站擋下自動抓取（' + r.slice(5) + '）' + retry;
-    if (/^http_/.test(r)) return '對方網站回應異常（' + r.slice(5) + '）' + retry;
-    if (r === 'timeout') return '抓取逾時' + retry;
-    if (r === 'no_title') return '頁面抓到了但找不到標題' + retry;
-    return '抓不到標題' + retry;
+  function setTitleStatus(text, kind) {   // 抓取狀態：跟按鈕同形狀的膠囊框；沒有狀態就隱藏
+    var el = $('titleHint');
+    el.textContent = text || '';
+    el.hidden = !text;
+    el.className = 'pill' + (kind ? ' ' + kind : '');
+  }
+  var RETRY_COOLDOWN_S = 5;
+  function clearRetry() { clearInterval(state.retryTimer); state.retryTimer = null; }
+  function scheduleRetry(url) {   // 第一次自動抓失敗：冷卻 5 秒後自動再抓一次（只一次）
+    clearRetry();
+    var left = RETRY_COOLDOWN_S;
+    function show() { setTitleStatus('抓不到標題，' + left + ' 秒後再試', 'warn'); }
+    show();
+    state.retryTimer = setInterval(function () {
+      left--;
+      if (left > 0) { show(); return; }
+      clearRetry();
+      if (!$('dlg').open || state.editing || state.origTouched || $('fOrig').value.trim()) { setTitleStatus(''); return; }
+      var raw = normalizeUrl($('fUrl').value.trim());
+      autofillTitle(raw || url, 'retry');
+    }, 1000);
   }
 
-  function autofillTitle(url, force) {   // force：使用者按「重新讀取」，直接覆蓋目前的標題
+  // mode：'auto' 貼網址時自動抓（失敗會排一次冷卻後重試）、'retry' 冷卻後的自動重試、'manual' 按「重新讀取」直接覆蓋目前標題
+  function autofillTitle(url, mode) {
+    clearRetry();
     var seq = ++state.fetchSeq;
-    $('titleHint').textContent = '正在抓取標題…';
+    setTitleStatus('正在抓取標題…');
     callApi('fetchTitle', { url: url }).then(function (data) { return data || { title: null, reason: 'fetch_error' }; }, function (e) { return { title: null, reason: e && e.code === 'timeout' ? 'timeout' : 'fetch_error' }; })
       .then(function (data) {
         if (seq !== state.fetchSeq) return;                    // 晚到的結果丟棄
-        if (!data.title) { $('titleHint').textContent = titleFailText(data.reason); return; }
-        if (!force && (state.origTouched || $('fOrig').value.trim())) { $('titleHint').textContent = ''; return; }
+        if (!data.title) {
+          if (mode === 'auto') scheduleRetry(url);
+          else setTitleStatus('抓不到標題，請按「重新讀取」', 'warn');
+          return;
+        }
+        if (mode !== 'manual' && (state.origTouched || $('fOrig').value.trim())) { setTitleStatus(''); return; }
         $('fOrig').value = data.title;
-        $('titleHint').textContent = '來自 ' + (data.source || '網頁');
+        setTitleStatus('來自 ' + (data.source || '網頁'), 'ok');
       });
   }
 
@@ -858,20 +879,20 @@
 
   $('reTitle').addEventListener('click', function () {
     var raw = $('fUrl').value.trim(), url = raw ? normalizeUrl(raw) : null;
-    if (!url) { state.fetchSeq++; $('titleHint').textContent = raw ? '網址格式不正確，無法讀取標題。' : '請先填上網址再讀取標題。'; return; }
-    autofillTitle(url, true);
+    if (!url) { state.fetchSeq++; clearRetry(); setTitleStatus(raw ? '網址格式不正確，無法讀取標題。' : '請先填上網址再讀取標題。', 'warn'); return; }
+    autofillTitle(url, 'manual');
   });
 
   var urlTimer = null;
   $('fUrl').addEventListener('input', function () { clearTimeout(urlTimer); urlTimer = setTimeout(checkUrl, 400); });
   $('fUrl').addEventListener('change', function () { clearTimeout(urlTimer); checkUrl(); });
   $('fUrl').addEventListener('paste', function () { setTimeout(checkUrl, 0); });
-  $('fOrig').addEventListener('input', function () { state.origTouched = true; });
+  $('fOrig').addEventListener('input', function () { state.origTouched = true; if (state.retryTimer) { clearRetry(); setTitleStatus(''); } });
   $('fCat').addEventListener('change', function () { state.catTouched = true; });
 
   $('cancel').addEventListener('click', function () { if (!state.saving) $('dlg').close(); });
   $('dlg').addEventListener('cancel', function (e) { if (state.saving) e.preventDefault(); });
-  $('dlg').addEventListener('close', function () { state.fetchSeq++; resetDel(); });
+  $('dlg').addEventListener('close', function () { state.fetchSeq++; clearRetry(); resetDel(); });
 
   $('del').addEventListener('click', function () {
     var it = state.editing, b = $('del');

@@ -1175,7 +1175,7 @@ test('標題旁的「重新讀取」：用目前網址重抓並覆蓋標題；�
   assert.equal(fetches().length, 2);
   api.st.titleResult = { title: null, reason: 'http_403' };
   await page.click('#reTitle');
-  await page.waitForFunction(() => /403/.test(document.getElementById('titleHint').textContent));
+  await page.waitForFunction(() => /抓不到/.test(document.getElementById('titleHint').textContent));
   assert.equal(await page.inputValue('#fOrig'), '重新抓到的新標題');                              // 抓失敗不清掉原本的
   await page.click('#cancel');
   await pick(page, '4031880');
@@ -1183,16 +1183,16 @@ test('標題旁的「重新讀取」：用目前網址重抓並覆蓋標題；�
   assert.equal(await page.locator('#reTitle').isHidden(), true);
 });
 
-test('新增：只在第一次貼網址時自動讀一次標題；失敗後不再自動重抓，提示改按「重新讀取」，按了用目前網址再試', async (t) => {
+test('新增：改網址不會再自動抓；冷卻期間按「重新讀取」立刻用目前網址再試', async (t) => {
   const { page, api } = await open(t);
   api.st.titleResult = { title: null, reason: 'http_403' };
   await connectRows(page);
   const fetches = () => api.st.calls.filter((c) => c.action === 'fetchTitle');
   await page.click('#addBtn');
   await page.fill('#fUrl', 'https://news.tvbs.com.tw/local/6300001');
-  await page.waitForFunction(() => /403/.test(document.getElementById('titleHint').textContent));
+  await page.waitForFunction(() => /抓不到/.test(document.getElementById('titleHint').textContent));
   assert.equal(fetches().length, 1);
-  assert.match(await page.textContent('#titleHint'), /重新讀取/);                              // 失敗提示指向重試的方法
+  assert.match(await page.textContent('#titleHint'), /秒後再試/);                          // 第一次失敗：冷卻後會自動再試一次
   await page.fill('#fUrl', 'https://news.tvbs.com.tw/local/6300002');                        // 改網址不會自動再抓
   await page.waitForTimeout(900);
   assert.equal(fetches().length, 1);
@@ -1253,4 +1253,76 @@ test('新增：列表還在載入時就開啟視窗，載入完成後分類選�
   assert.deepEqual(await page.$$eval('#fCat option', (o) => o.map((x) => x.value)), ['社會', '生活', '健康', '政治', '國際', '娛樂']);
   assert.equal(await page.inputValue('#fCat'), '健康');                                       // 補上後依網址自動選好
   assert.equal(await page.locator('#err').isHidden(), true);
+});
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const fetchCount = (api) => api.st.calls.filter((c) => c.action === 'fetchTitle').length;
+
+test('新增：第一次沒抓到，冷卻 5 秒後自動再抓一次；再失敗才改按「重新讀取」', async (t) => {
+  const { page, api } = await open(t);
+  api.st.titleResult = { title: null, reason: 'http_403' };
+  await connectRows(page);
+  await page.click('#addBtn');
+  await page.fill('#fUrl', 'https://news.tvbs.com.tw/local/6600001');
+  await page.waitForFunction(() => /抓不到/.test(document.getElementById('titleHint').textContent));
+  assert.equal(fetchCount(api), 1);
+  assert.match(await page.textContent('#titleHint'), /\d 秒後再試/);                      // 倒數中
+  await sleep(2000);
+  assert.equal(fetchCount(api), 1);                                                          // 冷卻期間不會提早再抓
+  api.st.titleResult = { title: null, reason: 'http_403' };
+  const t0 = Date.now();
+  while (fetchCount(api) < 2 && Date.now() - t0 < 8000) await sleep(100);
+  assert.equal(fetchCount(api), 2);
+  assert.ok(Date.now() - t0 >= 2500, '約 5 秒後才會再抓');
+  await page.waitForFunction(() => /重新讀取/.test(document.getElementById('titleHint').textContent));
+  assert.doesNotMatch(await page.textContent('#titleHint'), /秒後再試/);                 // 自動重試只有一次
+});
+
+test('新增：冷卻後自動再抓成功就填入標題', async (t) => {
+  const { page, api } = await open(t);
+  api.st.titleResult = { title: null, reason: 'timeout' };
+  await connectRows(page);
+  await page.click('#addBtn');
+  await page.fill('#fUrl', 'https://news.tvbs.com.tw/local/6600002');
+  await page.waitForFunction(() => /再試/.test(document.getElementById('titleHint').textContent));
+  api.st.titleResult = { title: '第二次抓到了', source: 'og:title' };
+  await page.waitForFunction(() => document.getElementById('fOrig').value === '第二次抓到了', null, { timeout: 9000 });
+  assert.equal(fetchCount(api), 2);
+  assert.match(await page.textContent('#titleHint'), /來自 og:title/);
+});
+
+test('新增：冷卻期間自己輸入了標題、或關掉視窗，就不會再自動抓', async (t) => {
+  const { page, api } = await open(t);
+  api.st.titleResult = { title: null, reason: 'http_403' };
+  await connectRows(page);
+  await page.click('#addBtn');
+  await page.fill('#fUrl', 'https://news.tvbs.com.tw/local/6600003');
+  await page.waitForFunction(() => /再試/.test(document.getElementById('titleHint').textContent));
+  await page.fill('#fOrig', '我自己打的標題');
+  await sleep(5600);
+  assert.equal(fetchCount(api), 1);
+  assert.equal(await page.inputValue('#fOrig'), '我自己打的標題');
+  await page.click('#cancel');
+  await page.click('#addBtn');
+  await page.fill('#fUrl', 'https://news.tvbs.com.tw/local/6600004');
+  await page.waitForFunction(() => /再試/.test(document.getElementById('titleHint').textContent));
+  await page.click('#cancel');
+  await sleep(5600);
+  assert.equal(fetchCount(api), 2);                                                          // 第二次開啟只抓了第一次，關掉後沒再抓
+});
+
+test('抓取狀態用跟按鈕同形狀的膠囊框顯示；沒有狀態時不顯示空框', async (t) => {
+  const { page, api } = await open(t);
+  await connectRows(page);
+  await page.click('#addBtn');
+  assert.equal(await page.locator('#titleHint').isHidden(), true);
+  await page.fill('#fUrl', 'https://news.tvbs.com.tw/local/6600005');
+  await page.waitForFunction(() => /來自/.test(document.getElementById('titleHint').textContent));
+  assert.equal(await page.locator('#titleHint').isVisible(), true);
+  const radius = (sel) => page.$eval(sel, (e) => getComputedStyle(e).borderRadius);
+  assert.equal(await radius('#titleHint'), await radius('#reTitle'));                        // 與「重新讀取」按鈕同一種圓角
+  assert.notEqual(await page.$eval('#titleHint', (e) => getComputedStyle(e).backgroundColor), 'rgba(0, 0, 0, 0)');
+  await page.click('#cancel');
+  await page.click('#addBtn');
+  assert.equal(await page.locator('#titleHint').isHidden(), true);                           // 重新開啟：清空並隱藏
 });
