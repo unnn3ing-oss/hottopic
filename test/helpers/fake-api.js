@@ -13,6 +13,8 @@ function createFakeApi(opts = {}) {
   const find = (id) => st.items.find((i) => i.id === id);
   const idOf = (url) => (String(url).replace(/^[a-z]+:\/\/[^/]*/i, '').replace(/[?#].*$/, '').match(/\d+/g) || [])
     .reduce((a, b) => (b.length > a.length ? b : a), '') || null;
+  const keyOf = (url) => idOf(url) || String(url).trim();   // 同一篇文章的比對鍵（同 lib.js 的 articleKey）
+  const refDup = (key, who, exceptId) => st.refs.find((r) => r.id !== exceptId && r.who === who && keyOf(r.url) === key);
   const mkV = (ver, t) => ({ ver, t, last: null, count: 0 });
 
   function seed(item) {
@@ -27,6 +29,26 @@ function createFakeApi(opts = {}) {
     listItems: () => ok({ items: st.items.map(out), cats: clone(st.cats) }),
     fetchTitle: () => ok(clone(st.titleResult)),
     listRefs: () => ok({ items: clone(st.refs), cats: clone(st.cats) }),
+    addRef(a) {
+      const dup = refDup(keyOf(a.url), a.who, null);
+      if (dup) return bad('duplicate', { existing: clone(dup) });
+      const id = 'R' + (st.refs.reduce((m, r) => Math.max(m, Number(r.id.slice(1)) || 0), 0) + 1);
+      const ref = { id, cat: a.cat, orig: a.orig, url: a.url, title: a.title, who: a.who, created: st.now };
+      st.refs.push(ref);
+      return ok({ item: clone(ref) });
+    },
+    updateRef(a) {
+      const r = st.refs.find((x) => x.id === a.id); if (!r) return bad('not_found');
+      const dup = refDup(keyOf(r.url), a.who, a.id);
+      if (dup) return bad('duplicate', { existing: clone(dup) });
+      r.cat = a.cat; r.title = a.title; r.who = a.who;
+      return ok({ item: clone(r) });
+    },
+    deleteRef(a) {
+      if (!st.refs.some((x) => x.id === a.id)) return bad('not_found');
+      st.refs = st.refs.filter((x) => x.id !== a.id);
+      return ok({ id: a.id });
+    },
     addItem(a) {
       const id = idOf(a.url) || 'N' + (st.items.length + 1);
       if (find(id)) return bad('duplicate', { existing: clone(find(id)) });

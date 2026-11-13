@@ -1472,3 +1472,138 @@ test('手機寬度：模式開關在頂欄內，點一列看卡片，返回回�
   assert.ok(await page.locator('.row').first().isVisible());
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
 });
+
+/* ---------- 參考模式：新增、編輯、刪除 ---------- */
+const refCalls = (api, action) => api.st.calls.filter((c) => c.action === action).map((c) => c.args);
+async function openAddRef(page) { await page.click('#addBtn'); await page.waitForSelector('#dlg[open]'); }
+
+test('參考新增：欄位、自動帶入原標、送出內容（人名已正規化）', async (t) => {
+  const { page, api } = await openRef(t);
+  await toRef(page);
+  await openAddRef(page);
+  assert.equal(await page.locator('#dlgTitle').textContent(), '新增參考');
+  for (const sel of ['#fNote', '#usedBox', '#fExp', '#addVar']) assert.equal(await page.locator(sel).isHidden(), true, sel);
+  for (const sel of ['#fWho', '#fTitle']) assert.equal(await page.locator(sel).isVisible(), true, sel);
+  assert.equal(await page.getAttribute('#fWho', 'maxlength'), '30');
+  assert.deepEqual(await page.$$eval('#whoList option', (els) => els.map((e) => e.value)), ['小明', '小華', '阿美']);
+  await page.fill('#fUrl', 'https://news.tvbs.com.tw/health/4040001');
+  await page.waitForFunction(() => document.getElementById('fOrig').value === '自動帶入的原始標題');
+  assert.equal(await page.inputValue('#fCat'), '健康');
+  await page.fill('#fWho', '  阿美 ');
+  await page.fill('#fTitle', '阿美的新改標\n第二行');
+  await page.click('#save');
+  await page.waitForSelector('#dlg', { state: 'hidden' });
+  assert.deepEqual(refCalls(api, 'addRef'), [{ url: 'https://news.tvbs.com.tw/health/4040001', orig: '自動帶入的原始標題', cat: '健康', title: '阿美的新改標\n第二行', who: '阿美' }]);
+  assert.equal(await page.locator('.row').count(), 5);
+  assert.ok((await toastText(page)).includes('已儲存 #R5'));
+  assert.equal(await page.getAttribute('#card .item', 'data-id'), 'R5');
+  assert.equal((await page.locator('#whoChips .chip[data-who="阿美"]').textContent()).replace(/\s/g, ''), '阿美2');
+});
+
+test('參考新增：同篇提示與重複（Review Focus 1）', async (t) => {
+  const { page, api } = await openRef(t);
+  await toRef(page);
+  await openAddRef(page);
+  await page.fill('#fUrl', 'https://news.tvbs.com.tw/local/4031880');
+  await page.waitForFunction(() => document.getElementById('idHint').textContent.includes('這篇已有 2 個人的改標：小明、小華'));
+  await page.fill('#fWho', '小明');
+  await page.waitForFunction(() => document.getElementById('idHint').textContent.includes('這篇已有「小明」的改標'));
+  await page.click('#idHint button');
+  await page.waitForFunction(() => document.getElementById('dlgTitle').textContent === '編輯 #R1');
+  await page.click('#cancel');
+  // 不點提示、直接儲存：伺服器回 duplicate → 改開既有那筆的編輯視窗
+  await openAddRef(page);
+  await page.fill('#fUrl', 'https://news.tvbs.com.tw/local/4031880?from=x');
+  await page.waitForFunction(() => document.getElementById('fOrig').value !== '');
+  await page.fill('#fWho', ' 小明');
+  await page.fill('#fTitle', '重複的');
+  await page.click('#save');
+  await page.waitForFunction(() => document.getElementById('dlgTitle').textContent === '編輯 #R1');
+  assert.equal(refCalls(api, 'addRef').length, 1);
+  assert.equal(api.st.refs.length, 4);
+});
+
+test('參考驗證：缺人、缺改標不送出；= 開頭的改標照常存、照常顯示（Review Focus 3）', async (t) => {
+  const { page, api } = await openRef(t);
+  await toRef(page);
+  await openAddRef(page);
+  await page.fill('#fUrl', 'https://news.tvbs.com.tw/health/4040002');
+  await page.waitForFunction(() => document.getElementById('fOrig').value !== '');
+  await page.click('#save');
+  assert.equal(await page.locator('#err').textContent(), '請填參考誰。');
+  await page.fill('#fWho', '阿美');
+  await page.click('#save');
+  assert.equal(await page.locator('#err').textContent(), '請填改標。');
+  assert.equal(refCalls(api, 'addRef').length, 0);
+  await page.fill('#fTitle', '=1+1');
+  await page.click('#save');
+  await page.waitForSelector('#dlg', { state: 'hidden' });
+  assert.equal(refCalls(api, 'addRef')[0].title, '=1+1');
+  assert.equal(await page.locator('.row[data-id="R5"] h3').textContent(), '=1+1');
+});
+
+test('參考編輯：網址與原標唯讀；送出只含 id、分類、改標、人；篩選的人改名後退回全部', async (t) => {
+  const { page, api } = await openRef(t);
+  await toRef(page);
+  await page.click('#whoChips .chip[data-who="小華"]');
+  assert.deepEqual(await rowIds(page), ['R2']);
+  await page.click('#card [data-act=redit]');
+  await page.waitForSelector('#dlg[open]');
+  assert.equal(await page.locator('#dlgTitle').textContent(), '編輯 #R2');
+  assert.equal(await page.getAttribute('#fUrl', 'readonly'), '');
+  assert.equal(await page.getAttribute('#fOrig', 'readonly'), '');
+  assert.equal(await page.locator('#reTitle').isHidden(), true);
+  assert.equal(await page.locator('#del').isVisible(), true);
+  assert.equal(await page.inputValue('#fWho'), '小華');
+  await page.selectOption('#fCat', '生活');
+  await page.fill('#fWho', '阿美');
+  await page.fill('#fTitle', '新標題');
+  await page.click('#save');
+  await page.waitForSelector('#dlg', { state: 'hidden' });
+  assert.deepEqual(refCalls(api, 'updateRef'), [{ id: 'R2', cat: '生活', title: '新標題', who: '阿美' }]);
+  assert.equal(await page.locator('.row').count(), 4);   // 篩選已退回「全部」
+  assert.equal((await page.locator('#whoChips .chip[data-who="阿美"]').textContent()).replace(/\s/g, ''), '阿美2');
+  assert.equal(await page.locator('#whoChips .chip[data-who="小華"]').count(), 0);
+  assert.equal(await page.locator('.row[data-id="R2"] h3').textContent(), '新標題');
+});
+
+test('參考編輯：改成同篇已有的人 → 留在視窗並提示', async (t) => {
+  const { page } = await openRef(t);
+  await toRef(page);
+  await pick(page, 'R2');
+  await page.click('#card [data-act=redit]');
+  await page.waitForSelector('#dlg[open]');
+  await page.fill('#fWho', '小明');
+  await page.click('#save');
+  await page.waitForFunction(() => document.getElementById('err').textContent.includes('「小明」對這篇已經有改標了。'));
+  assert.equal(await page.locator('#dlg').evaluate((d) => d.open), true);
+});
+
+test('參考刪除：兩段式，刪後列消失、人那排數字更新', async (t) => {
+  const { page, api } = await openRef(t);
+  await toRef(page);
+  await pick(page, 'R1');
+  await page.click('#card [data-act=redit]');
+  await page.waitForSelector('#dlg[open]');
+  await page.click('#del');
+  assert.equal(await page.locator('#del').textContent(), '再按一次刪除（無法復原）');
+  assert.equal(refCalls(api, 'deleteRef').length, 0);
+  await page.click('#del');
+  await page.waitForSelector('#dlg', { state: 'hidden' });
+  assert.deepEqual(refCalls(api, 'deleteRef'), [{ id: 'R1' }]);
+  assert.deepEqual(await rowIds(page), ['R4', 'R3', 'R2']);
+  assert.ok((await toastText(page)).includes('已刪除 #R1'));
+  assert.equal((await page.locator('#whoChips .chip[data-who="小明"]').textContent()).replace(/\s/g, ''), '小明1');
+});
+
+test('切回新聞庫：新增視窗恢復新聞庫欄位', async (t) => {
+  const { page } = await openRef(t);
+  await toRef(page);
+  await page.click('#modeLib');
+  await page.waitForSelector('.row[data-id="4031880"]');
+  await page.click('#addBtn');
+  await page.waitForSelector('#dlg[open]');
+  assert.equal(await page.locator('#dlgTitle').textContent(), '新增新聞');
+  for (const sel of ['#fNote', '#usedBox', '#fExp']) assert.equal(await page.locator(sel).isVisible(), true, sel);
+  for (const sel of ['#fWho', '#fTitle']) assert.equal(await page.locator(sel).isHidden(), true, sel);
+});

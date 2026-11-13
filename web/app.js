@@ -11,7 +11,7 @@
     editing: null, draft: [], removed: [], saving: false, delTimer: null,
     fetchSeq: 0, autoFetched: false, origTouched: false, catTouched: false,
     sel: null, copied: null,
-    mode: loadMode(), refs: [], refStatus: 'idle', refError: '', who: '全部', refCat: '全部', refSort: 'created'
+    dlgRef: false, mode: loadMode(), refs: [], refStatus: 'idle', refError: '', who: '全部', refCat: '全部', refSort: 'created'
   };
   var MOBILE = window.matchMedia ? window.matchMedia('(max-width: 820px)') : { matches: false };
 
@@ -659,7 +659,7 @@
       var act = b.getAttribute('data-act');
       if (act === 'retry') reload();
       else if (act === 'settings') openSettings();
-      else if (act === 'add-first') openDialog(null);
+      else if (act === 'add-first') openAdd();
       return;
     }
     var row = e.target.closest('.row');
@@ -710,6 +710,7 @@
     var r = byRef(id);
     if (!r) return;
     if (act === 'rcopy') copyText(r.title, '已複製標題');
+    else if (act === 'redit') openRefDialog(r);
     else if (act === 'rother') jumpToRef(btn.getAttribute('data-id'));
   }
 
@@ -801,7 +802,7 @@
   $('searchBtn').addEventListener('click', function () { setSearching(!document.body.classList.contains('searching')); });
   $('q').addEventListener('input', syncSearchBtn);
   if (MOBILE.addEventListener) MOBILE.addEventListener('change', function (e) { if (!e.matches) setSearching(false); });
-  $('addBtn').addEventListener('click', function () { openDialog(null); });
+  $('addBtn').addEventListener('click', openAdd);
   $('settingsBtn').addEventListener('click', function () { openSettings(); });
 
   /* ---------- 設定 ---------- */
@@ -900,8 +901,11 @@
   }
   function setErr(msg) { var e = $('err'); e.textContent = msg || ''; e.hidden = !msg; }
 
+  function openAdd() { if (state.mode === 'ref') openRefDialog(null); else openDialog(null); }
+
   function openDialog(item) {
     closeXsels();
+    state.dlgRef = false; $('dlg').classList.remove('ref');
     state.editing = item || null;
     state.removed = [];
     state.saving = false;
@@ -932,6 +936,67 @@
     checkUrl();
     if (!$('dlg').open) $('dlg').showModal();
     if (!item) $('fUrl').focus();                       // 欄位順序改過，第一個可聚焦的是分類；新增時仍讓游標停在網址
+  }
+
+  function openRefDialog(ref) {
+    closeXsels();
+    state.dlgRef = true; $('dlg').classList.add('ref');
+    state.editing = ref || null;
+    state.removed = []; state.draft = [];
+    state.saving = false;
+    state.fetchSeq++;
+    state.autoFetched = false;
+    state.origTouched = false;
+    state.catTouched = false;
+    $('dlgTitle').textContent = ref ? '編輯 #' + ref.id : '新增參考';
+    $('fUrl').value = ref ? ref.url : ''; $('fUrl').readOnly = !!ref;
+    $('fOrig').value = ref ? ref.orig : ''; $('fOrig').readOnly = !!ref;
+    fillCats(ref ? ref.cat : allCats()[0]);
+    $('fWho').value = ref ? ref.who : '';
+    $('fTitle').value = ref ? ref.title : '';
+    var list = $('whoList');
+    list.replaceChildren.apply(list, refPeople().map(function (p) { return h('option', { value: p }); }));
+    $('reTitle').hidden = !!ref;
+    clearRetry();
+    setTitleStatus('');
+    setErr(allCats().length ? '' : '分類清單還沒載入完成，請稍候；若一直沒出現，請重新整理頁面。');
+    resetDel();
+    $('del').hidden = !ref;
+    $('save').disabled = false;
+    checkUrl();
+    if (!$('dlg').open) $('dlg').showModal();
+    if (!ref) $('fUrl').focus();
+  }
+
+  function submitRef() {
+    var ref = state.editing;
+    var rawUrl = $('fUrl').value, orig = normalizeLine($('fOrig').value), cat = $('fCat').value;
+    var who = normalizeLine($('fWho').value), title = normalizeText($('fTitle').value);
+    var url = ref ? ref.url : normalizeUrl(rawUrl);
+    if (!rawUrl.trim() || !orig) { setErr('網址和原始標題必填。'); return; }
+    if (!url) { setErr('網址格式不正確（需為 http 或 https 的完整網址）。'); return; }
+    if (!cat) { setErr('請選擇分類。'); return; }
+    if (!who) { setErr('請填參考誰。'); return; }
+    if (who.length > LIMITS.who) { setErr('參考誰最多 ' + LIMITS.who + ' 字。'); return; }
+    if (!title) { setErr('請填改標。'); return; }
+    setErr('');
+    var action = ref ? 'updateRef' : 'addRef';
+    var req = ref ? { id: ref.id, cat: cat, title: title, who: who } : { url: url, orig: orig, cat: cat, title: title, who: who };
+    state.saving = true; $('save').disabled = true; $('save').textContent = '儲存中…';
+    mutate(action, req).then(function (data) {
+      if (!data) { $('dlg').close(); return; }
+      replaceRef(data.item);
+      $('dlg').close();
+      jumpToRef(data.item.id);   // 新增或改人後若被目前篩選擋住，就清掉篩選讓它看得到
+      toast('已儲存 #' + data.item.id);
+    }).catch(function (err) {
+      if (err.code === 'duplicate' && err.existing) {
+        if (ref) { setErr('「' + who + '」對這篇已經有改標了。'); return; }
+        replaceRef(err.existing); render(); state.saving = false; openRefDialog(err.existing); return;
+      }
+      if (err.code === 'unauthorized') return;   // 登入視窗已由 callApi 開啟；保留編輯視窗與草稿
+      setErr(err.message);
+    }).then(function () { state.saving = false; $('save').disabled = false; $('save').textContent = '儲存'; });
   }
 
   function localInputValue(ms) {   // 毫秒 → 'YYYY/MM/DD HH:mm'（瀏覽器所在時區，24 小時制）
@@ -972,23 +1037,36 @@
     hint.appendChild(document.createTextNode(text));
     if (dup) {
       hint.appendChild(document.createTextNode(' '));
-      hint.appendChild(h('button', { type: 'button', click: function () { openDialog(dup); } }, '改為編輯這則'));
+      hint.appendChild(h('button', { type: 'button', click: function () { if (state.dlgRef) openRefDialog(dup); else openDialog(dup); } }, '改為編輯這則'));
     }
   }
 
   function checkUrl() {
     if (state.editing) { setIdHint('編號 ' + state.editing.id + '（編輯時不可更改）'); return; }
     var raw = $('fUrl').value.trim();
-    if (!raw) { setIdHint('貼上網址後會自動抓出編號。'); return; }
-    var id = extractId(raw);
-    var dup = id ? byId(id) : null;
-    if (dup) { setIdHint('編號 ' + id + ' 已存在。', dup); return; }
-    setIdHint(id ? '編號 ' + id : '網址裡找不到數字，將使用流水號作為編號。');
+    if (!raw) { setIdHint(state.dlgRef ? '貼上網址後會自動抓出原標。' : '貼上網址後會自動抓出編號。'); return; }
+    if (state.dlgRef) refHint(raw);
+    else {
+      var id = extractId(raw);
+      var dup = id ? byId(id) : null;
+      if (dup) { setIdHint('編號 ' + id + ' 已存在。', dup); return; }
+      setIdHint(id ? '編號 ' + id : '網址裡找不到數字，將使用流水號作為編號。');
+    }
     var url = normalizeUrl(raw);
     var guess = url && !state.catTouched ? guessCategory(url, allCats()) : null;
     if (guess) $('fCat').value = guess;
     if (url && !state.autoFetched && !state.origTouched && !$('fOrig').value.trim()) { state.autoFetched = true; autofillTitle(url, 'auto'); }   // 自動只讀一次，失敗了改按「重新讀取」
   }
+
+  // 參考模式新增時的提示：同篇已有哪些人的改標；同篇同人已存在就提供「改為編輯這則」
+  function refHint(raw) {
+    var key = articleKey(normalizeUrl(raw) || raw), who = normalizeLine($('fWho').value);
+    var same = state.refs.filter(function (r) { return articleKey(r.url) === key; });
+    var mine = who ? same.filter(function (r) { return r.who === who; })[0] : null;
+    if (mine) { setIdHint('這篇已有「' + who + '」的改標。', mine); return; }
+    setIdHint(same.length ? '這篇已有 ' + same.length + ' 個人的改標：' + same.map(function (r) { return r.who; }).join('、') : '這篇目前還沒有人的改標。');
+  }
+  $('fWho').addEventListener('input', function () { if (state.dlgRef && !state.editing) refHint($('fUrl').value.trim()); });
 
   function setTitleStatus(text, kind) {   // 抓取狀態：跟按鈕同形狀的膠囊框；沒有狀態就隱藏
     var el = $('titleHint');
@@ -1071,9 +1149,11 @@
     }
     resetDel();
     state.saving = true; b.disabled = true; $('save').disabled = true;
-    mutate('deleteItem', { id: it.id }).then(function (data) {
+    var isRef = state.dlgRef;
+    mutate(isRef ? 'deleteRef' : 'deleteItem', { id: it.id }).then(function (data) {
       if (!data) { $('dlg').close(); return; }
-      state.items = state.items.filter(function (x) { return x.id !== it.id; });
+      if (isRef) state.refs = state.refs.filter(function (x) { return x.id !== it.id; });
+      else state.items = state.items.filter(function (x) { return x.id !== it.id; });
       $('dlg').close(); render(); toast('已刪除 #' + it.id);
     }).catch(function (e) { setErr(e.message); }).then(function () { state.saving = false; b.disabled = false; $('save').disabled = false; });
   });
@@ -1081,6 +1161,7 @@
   $('form').addEventListener('submit', function (e) {
     e.preventDefault();
     if (state.saving) return;
+    if (state.dlgRef) { submitRef(); return; }
     var it = state.editing;
     var rawUrl = $('fUrl').value, orig = normalizeLine($('fOrig').value);
     var note = normalizeText($('fNote').value), cat = $('fCat').value;

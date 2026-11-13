@@ -90,6 +90,12 @@
     <label>分類
       <select id="fCat"></select>
     </label>
+    <label class="refonly">參考誰（這個改標是誰發的）
+      <input id="fWho" type="text" list="whoList" autocomplete="off" maxlength="30">
+    </label>
+    <datalist id="whoList"></datalist>
+    <div class="hint refonly" id="whoHint" hidden></div>
+    <button class="btn small refonly" type="button" id="whoSet" hidden>設為本班預設</button>
     <div class="exprow">
       <label>原始標題（建立後不可修改）
         <input id="fOrig" type="text" autocomplete="off" maxlength="500">
@@ -101,12 +107,15 @@
       <input id="fUrl" type="text" autofocus inputmode="url" placeholder="https://news.tvbs.com.tw/cars/4032757" autocomplete="off" maxlength="2000">
     </label>
     <div class="hint" id="idHint"></div>
-    <div id="vars"></div>
-    <button class="btn" type="button" id="addVar">＋ 新增一個改標</button>
-    <label>小編文（整則新聞共用）
+    <div id="vars" class="libonly"></div>
+    <button class="btn libonly" type="button" id="addVar">＋ 新增一個改標</button>
+    <label class="refonly">改標（可換行，顯示和複製都會保留）
+      <textarea id="fTitle" maxlength="500"></textarea>
+    </label>
+    <label class="libonly">小編文（整則新聞共用）
       <textarea id="fNote" maxlength="5000"></textarea>
     </label>
-    <fieldset id="usedBox">
+    <fieldset id="usedBox" class="libonly">
       <legend>使用狀態</legend>
       <label class="check"><input type="radio" name="used" id="fUsed0" value="0" checked> <span>未使用</span></label>
       <label class="check"><input type="radio" name="used" id="fUsed1" value="1"> <span>已使用過（例如同事已經發過）</span></label>
@@ -114,13 +123,13 @@
         <input type="text" id="fLast" inputmode="numeric" placeholder="YYYY/MM/DD HH:mm" autocomplete="off" maxlength="16">
       </label>
     </fieldset>
-    <div class="exprow">
+    <div class="exprow libonly">
       <label>到期日（選填，到期當天起移到「已到期」）
         <input type="date" id="fExp">
       </label>
       <button class="btn small" type="button" id="fExpClear">清除</button>
     </div>
-    <div class="hint warn" id="expHint" hidden></div>
+    <div class="hint warn libonly" id="expHint" hidden></div>
     <div class="hint warn" id="err" role="alert" hidden></div>
     <div class="dlgrow">
       <button class="btn danger" type="button" id="del" hidden>刪除這則</button>
