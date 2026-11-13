@@ -29,10 +29,10 @@ test.before(async () => {
 });
 test.after(async () => { await browser.close(); server.close(); });
 
-async function open(t, { sample = true, init = null } = {}) {
+async function open(t, { sample = true, init = null, now = null, tz = 'Asia/Taipei' } = {}) {
   const api = createFakeApi();
   if (sample) seedSample(api);
-  const ctx = await browser.newContext({ timezoneId: 'Asia/Taipei', locale: 'zh-TW', viewport: { width: 900, height: 900 } });
+  const ctx = await browser.newContext({ timezoneId: tz, locale: 'zh-TW', viewport: { width: 900, height: 900 } });
   await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin });
   const page = await ctx.newPage();
   const problems = [];
@@ -48,6 +48,7 @@ async function open(t, { sample = true, init = null } = {}) {
     await route.fulfill({ status: 200, contentType: 'text/plain', headers: { 'access-control-allow-origin': '*' },
       body: r.method() === 'POST' ? api.handle(path, r.postData()) : 'ok' });
   });
+  if (now) await page.clock.setFixedTime(now);   // 固定瀏覽器的現在時間（Date.now／new Date），計時器照常跑
   await page.goto(origin + '/');
   t.after(async () => {
     const csp = await page.evaluate(() => window.__csp || []).catch(() => []);
@@ -1606,4 +1607,139 @@ test('切回新聞庫：新增視窗恢復新聞庫欄位', async (t) => {
   assert.equal(await page.locator('#dlgTitle').textContent(), '新增新聞');
   for (const sel of ['#fNote', '#usedBox', '#fExp']) assert.equal(await page.locator(sel).isVisible(), true, sel);
   for (const sel of ['#fWho', '#fTitle']) assert.equal(await page.locator(sel).isHidden(), true, sel);
+});
+
+/* ---------- 參考模式：本班預設人選 ---------- */
+let refSeq = 4040100;
+async function saveRef(page, who, title = '標題') {   // 新增一筆（每次用新網址，避免同篇同人重複），人留空表示用預填的
+  await openAddRef(page);
+  await page.fill('#fUrl', 'https://news.tvbs.com.tw/health/' + (++refSeq));
+  await page.waitForFunction(() => document.getElementById('fOrig').value !== '');
+  if (who !== null) await page.fill('#fWho', who);
+  await page.fill('#fTitle', title);
+  await page.click('#save');
+  await page.waitForSelector('#dlg', { state: 'hidden' });
+}
+const storedWho = (page) => page.evaluate(() => { const v = localStorage.getItem('hottopic.refWho'); return v === null ? null : v; });
+const T0750 = new Date('2026-11-13T07:50:00+08:00');
+
+test('班段預設：第一次成功儲存後，之後新增自動預填', async (t) => {
+  const { page } = await openRef(t, { now: T0750 });
+  await toRef(page);
+  await openAddRef(page);
+  assert.equal(await page.inputValue('#fWho'), '');
+  assert.equal(await page.locator('#whoHint').isHidden(), true);
+  await page.click('#cancel');
+  await saveRef(page, '小明');
+  await openAddRef(page);
+  assert.equal(await page.inputValue('#fWho'), '小明');
+  assert.match(await page.locator('#whoHint').textContent(), /本班預設：小明/);
+  assert.equal(await page.locator('#whoSet').isHidden(), true);
+  const v = JSON.parse(await storedWho(page));
+  assert.deepEqual(v, { who: '小明', shift: '2026-11-13#0' });
+});
+
+test('班段預設：打到一半（沒儲存）不記錄', async (t) => {
+  const { page } = await openRef(t, { now: T0750 });
+  await toRef(page);
+  await openAddRef(page);
+  await page.fill('#fWho', '小華');
+  await page.click('#cancel');
+  await openAddRef(page);
+  assert.equal(await page.inputValue('#fWho'), '');
+  assert.equal(await storedWho(page), null);
+});
+
+test('班段預設：逐篇改人不影響預設，可用按鈕改預設', async (t) => {
+  const { page } = await openRef(t, { now: T0750 });
+  await toRef(page);
+  await saveRef(page, '小明');
+  await openAddRef(page);
+  await page.fill('#fWho', '小華');
+  assert.equal(await page.locator('#whoSet').isVisible(), true);
+  await page.fill('#fWho', '小明');
+  assert.equal(await page.locator('#whoSet').isHidden(), true);   // 等於預設時按鈕隱藏
+  await page.fill('#fWho', '小華');
+  await page.click('#cancel');
+  await saveRef(page, '小華');                                     // 這篇改填小華
+  await openAddRef(page);
+  assert.equal(await page.inputValue('#fWho'), '小明');            // 預設仍是小明
+  await page.fill('#fWho', '小華');
+  await page.click('#whoSet');
+  assert.ok((await toastText(page)).includes('已設為本班預設'));
+  assert.equal(await page.locator('#whoSet').isHidden(), true);
+  assert.match(await page.locator('#whoHint').textContent(), /本班預設：小華/);
+  await page.click('#cancel');
+  await openAddRef(page);
+  assert.equal(await page.inputValue('#fWho'), '小華');
+});
+
+test('班段預設：編輯既有資料不預填、也不改預設', async (t) => {
+  const { page } = await openRef(t, { now: T0750 });
+  await toRef(page);
+  await saveRef(page, '小明');
+  await pick(page, 'R2');
+  await page.click('#card [data-act=redit]');
+  await page.waitForSelector('#dlg[open]');
+  assert.equal(await page.inputValue('#fWho'), '小華');
+  assert.equal(await page.locator('#whoHint').isHidden(), true);
+  assert.equal(await page.locator('#whoSet').isHidden(), true);
+  await page.fill('#fWho', '阿美');
+  await page.click('#save');
+  await page.waitForSelector('#dlg', { state: 'hidden' });
+  assert.equal(JSON.parse(await storedWho(page)).who, '小明');
+});
+
+for (const [name, from, to, keep] of [
+  ['00:00–08:00 → 08:00', '2026-11-13T07:59:59+08:00', '2026-11-13T08:00:00+08:00', false],
+  ['08:00–16:00 → 16:00', '2026-11-13T15:59:59+08:00', '2026-11-13T16:00:00+08:00', false],
+  ['16:00–24:00 → 隔天 00:00', '2026-11-13T23:59:59+08:00', '2026-11-14T00:00:00+08:00', false],
+  ['同一班內（08:00 → 15:59:59）不失效', '2026-11-13T08:00:00+08:00', '2026-11-13T15:59:59+08:00', true]
+]) {
+  test('班段交界（Review Focus 5）：' + name, async (t) => {
+    const { page } = await openRef(t, { now: new Date(from) });
+    await toRef(page);
+    await saveRef(page, '小明');
+    await page.clock.setFixedTime(new Date(to));
+    await openAddRef(page);
+    assert.equal(await page.inputValue('#fWho'), keep ? '小明' : '');
+    assert.equal(await storedWho(page) === null, !keep);   // 跨班的預設會被清掉
+  });
+}
+
+test('班段：瀏覽器時區不是台北，仍照台北時間換班（Review Focus 5）', async (t) => {
+  const { page } = await openRef(t, { now: new Date('2026-11-13T07:59:59+08:00'), tz: 'America/New_York' });
+  await toRef(page);
+  await saveRef(page, '小明');
+  assert.equal(JSON.parse(await storedWho(page)).shift, '2026-11-13#0');
+  await page.clock.setFixedTime(new Date('2026-11-13T08:00:00+08:00'));
+  await openAddRef(page);
+  assert.equal(await page.inputValue('#fWho'), '');
+});
+
+test('班段：localStorage 內容壞掉、或讀寫丟例外，新增照常（Review Focus 5）', async (t) => {
+  const bad = await openRef(t, { now: T0750, init: () => { localStorage.setItem('hottopic.refWho', 'not json'); } });
+  await toRef(bad.page);
+  await openAddRef(bad.page);
+  assert.equal(await bad.page.inputValue('#fWho'), '');
+  await bad.page.click('#cancel');
+  await saveRef(bad.page, '小明');
+  assert.equal(JSON.parse(await storedWho(bad.page)).who, '小明');
+});
+
+test('班段：hottopic.refWho 讀寫都丟例外 → 不預填、儲存照常成功', async (t) => {
+  const { page, api } = await openRef(t, { now: T0750, init: () => {
+    const g = Storage.prototype.getItem, s = Storage.prototype.setItem, r = Storage.prototype.removeItem;
+    Storage.prototype.getItem = function (k) { if (k === 'hottopic.refWho') throw new Error('blocked'); return g.call(this, k); };
+    Storage.prototype.setItem = function (k, v) { if (k === 'hottopic.refWho') throw new Error('blocked'); return s.call(this, k, v); };
+    Storage.prototype.removeItem = function (k) { if (k === 'hottopic.refWho') throw new Error('blocked'); return r.call(this, k); };
+  } });
+  await toRef(page);
+  await openAddRef(page);
+  assert.equal(await page.inputValue('#fWho'), '');
+  await page.click('#cancel');
+  await saveRef(page, '小明');
+  assert.equal(api.st.refs.length, 5);
+  await openAddRef(page);
+  assert.equal(await page.inputValue('#fWho'), '');
 });

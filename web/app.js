@@ -11,7 +11,7 @@
     editing: null, draft: [], removed: [], saving: false, delTimer: null,
     fetchSeq: 0, autoFetched: false, origTouched: false, catTouched: false,
     sel: null, copied: null,
-    dlgRef: false, mode: loadMode(), refs: [], refStatus: 'idle', refError: '', who: '全部', refCat: '全部', refSort: 'created'
+    dlgRef: false, shiftWho: '', mode: loadMode(), refs: [], refStatus: 'idle', refError: '', who: '全部', refCat: '全部', refSort: 'created'
   };
   var MOBILE = window.matchMedia ? window.matchMedia('(max-width: 820px)') : { matches: false };
 
@@ -938,6 +938,34 @@
     if (!item) $('fUrl').focus();                       // 欄位順序改過，第一個可聚焦的是分類；新增時仍讓游標停在網址
   }
 
+  /* 本班預設人選：存在這台瀏覽器 localStorage，交班（台北 00:00／08:00／16:00）自動失效 */
+  var WHO_KEY = 'hottopic.refWho';
+  function loadShiftWho() {
+    try {
+      var raw = window.localStorage.getItem(WHO_KEY), v = null;
+      if (raw === null) return '';
+      try { v = JSON.parse(raw); } catch (e) { v = null; }
+      if (v && typeof v.who === 'string' && v.who && v.shift === shiftKey(Date.now())) return v.who;
+      window.localStorage.removeItem(WHO_KEY);   // 跨班或壞資料：清掉
+    } catch (e) { /* 不能讀寫就當沒有預設 */ }
+    return '';
+  }
+  function saveShiftWho(who) {
+    try { window.localStorage.setItem(WHO_KEY, JSON.stringify({ who: who, shift: shiftKey(Date.now()) })); } catch (e) { /* 存不了就算了 */ }
+  }
+  function syncWhoUi() {   // 只有「新增參考」才顯示本班預設與「設為本班預設」
+    var adding = state.dlgRef && !state.editing, typed = normalizeLine($('fWho').value);
+    $('whoHint').textContent = adding && state.shiftWho ? '本班預設：' + state.shiftWho : '';
+    $('whoHint').hidden = !(adding && state.shiftWho);
+    $('whoSet').hidden = !(adding && typed && typed !== state.shiftWho);
+  }
+  $('whoSet').addEventListener('click', function () {
+    var w = normalizeLine($('fWho').value);
+    if (!w || w.length > LIMITS.who) return;
+    saveShiftWho(w); state.shiftWho = w; syncWhoUi();
+    toast('已設為本班預設');
+  });
+
   function openRefDialog(ref) {
     closeXsels();
     state.dlgRef = true; $('dlg').classList.add('ref');
@@ -952,7 +980,9 @@
     $('fUrl').value = ref ? ref.url : ''; $('fUrl').readOnly = !!ref;
     $('fOrig').value = ref ? ref.orig : ''; $('fOrig').readOnly = !!ref;
     fillCats(ref ? ref.cat : allCats()[0]);
-    $('fWho').value = ref ? ref.who : '';
+    state.shiftWho = ref ? '' : loadShiftWho();
+    $('fWho').value = ref ? ref.who : state.shiftWho;
+    syncWhoUi();
     $('fTitle').value = ref ? ref.title : '';
     var list = $('whoList');
     list.replaceChildren.apply(list, refPeople().map(function (p) { return h('option', { value: p }); }));
@@ -986,6 +1016,7 @@
     mutate(action, req).then(function (data) {
       if (!data) { $('dlg').close(); return; }
       replaceRef(data.item);
+      if (!ref && !loadShiftWho()) saveShiftWho(data.item.who);   // 本班第一次新增成功：記下這個人當預設
       $('dlg').close();
       jumpToRef(data.item.id);   // 新增或改人後若被目前篩選擋住，就清掉篩選讓它看得到
       toast('已儲存 #' + data.item.id);
@@ -1066,7 +1097,7 @@
     if (mine) { setIdHint('這篇已有「' + who + '」的改標。', mine); return; }
     setIdHint(same.length ? '這篇已有 ' + same.length + ' 個人的改標：' + same.map(function (r) { return r.who; }).join('、') : '這篇目前還沒有人的改標。');
   }
-  $('fWho').addEventListener('input', function () { if (state.dlgRef && !state.editing) refHint($('fUrl').value.trim()); });
+  $('fWho').addEventListener('input', function () { syncWhoUi(); if (state.dlgRef && !state.editing) refHint($('fUrl').value.trim()); });
 
   function setTitleStatus(text, kind) {   // 抓取狀態：跟按鈕同形狀的膠囊框；沒有狀態就隱藏
     var el = $('titleHint');
