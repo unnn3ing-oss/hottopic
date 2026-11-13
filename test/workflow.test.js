@@ -31,3 +31,8 @@ test('test job 跑單元與 e2e 測試', () => {
   assert.match(testBlock, /npm test/);
   assert.match(testBlock, /npm run test:e2e/);
 });
+
+test('test job 釘在 ubuntu-24.04（ubuntu-latest 已是 26.04，Playwright 1.56.1 裝不了瀏覽器）', () => {
+  assert.match(testBlock, /runs-on: ubuntu-24\.04\b/);
+  assert.doesNotMatch(testBlock, /ubuntu-latest/);
+});
