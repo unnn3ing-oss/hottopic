@@ -179,14 +179,15 @@ function refsSheet_(db) { return ensureSheet_(db.ss, SHEET.refs, HEADERS.refs); 
 
 // 手動編輯造成的壞資料（空 id、重複 id、改標或參考誰空白）略過
 function readRefs_(db) {
-  var items = [], byId = {}, rowOf = {};
+  var items = [], byId = {}, rowOf = {}, rawIds = [];   // rawIds：id 欄所有不空白的值（含被略過的列），算新編號時一併避開
   rows_(refsSheet_(db), 7).forEach(function (r, i) {
     var id = str_(r[0]).trim(), title = str_(r[4]), who = str_(r[5]).trim();
+    if (id) rawIds.push(id);
     if (!id || byId[id] || !title.trim() || !who) return;
     var item = { id: id, cat: str_(r[1]).trim(), orig: str_(r[2]), url: str_(r[3]), title: title, who: who, created: toMs_(r[6]) || 0 };
     byId[id] = item; rowOf[id] = i + 2; items.push(item);
   });
-  return { items: items, byId: byId, rowOf: rowOf };
+  return { items: items, byId: byId, rowOf: rowOf, rawIds: rawIds };
 }
 
 function withLock_(fn) {
@@ -391,9 +392,12 @@ function addRef_(args) {
     var refs = readRefs_(db);
     var dup = refDuplicate_(refs, articleKey(url), who, null);
     if (dup) failure_('duplicate', { existing: dup });
-    var id = nextRefId(refs.items.map(function (r) { return r.id; }));
+    // 編號只增不減：取「試算表現有的所有 id」與「曾發出的最大編號」較大者再 +1，刪掉最新一筆後也不會重號
+    var props = PropertiesService.getScriptProperties();
+    var id = nextRefId(refs.rawIds.concat(['R' + (Number(props.getProperty('REF_SEQ')) || 0)]));
     var now = new Date(), sheet = refsSheet_(db);
     writeBlock_(sheet, sheet.getLastRow() + 1, 1, refFormats_(), [[id, cat, orig, url, title, who, now]]);
+    props.setProperty('REF_SEQ', id.slice(1));
     return { item: { id: id, cat: cat, orig: orig, url: url, title: title, who: who, created: now.getTime() } };
   });
 }

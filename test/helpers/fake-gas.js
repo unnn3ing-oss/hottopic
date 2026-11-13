@@ -134,6 +134,7 @@ function createFakeGas(opts = {}) {
     } },
     PropertiesService: { getScriptProperties: () => ({
       getProperty: (k) => (k in gas.props ? gas.props[k] : null),
+      setProperty(k, v) { gas.props[k] = String(v); },
       getKeys: () => Object.keys(gas.props)
     }) },
     ContentService: { MimeType: { JSON: 'JSON' }, createTextOutput(s) {

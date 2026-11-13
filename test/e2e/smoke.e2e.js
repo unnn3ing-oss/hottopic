@@ -1512,16 +1512,37 @@ test('參考新增：同篇提示與重複（Review Focus 1）', async (t) => {
   await page.click('#idHint button');
   await page.waitForFunction(() => document.getElementById('dlgTitle').textContent === '編輯 #R1');
   await page.click('#cancel');
-  // 不點提示、直接儲存：伺服器回 duplicate → 改開既有那筆的編輯視窗
+  // 不點提示、直接儲存：伺服器回 duplicate → 留在新增視窗、保留使用者打的改標，並提供「改為編輯這則」
   await openAddRef(page);
   await page.fill('#fUrl', 'https://news.tvbs.com.tw/local/4031880?from=x');
   await page.waitForFunction(() => document.getElementById('fOrig').value !== '');
   await page.fill('#fWho', ' 小明');
   await page.fill('#fTitle', '重複的');
   await page.click('#save');
+  await page.waitForFunction(() => document.getElementById('err').textContent.includes('「小明」對這篇已經有改標了。'));
+  assert.equal(await page.locator('#dlgTitle').textContent(), '新增參考');
+  assert.equal(await page.inputValue('#fTitle'), '重複的');
+  await page.click('#idHint button');
   await page.waitForFunction(() => document.getElementById('dlgTitle').textContent === '編輯 #R1');
   assert.equal(refCalls(api, 'addRef').length, 1);
   assert.equal(api.st.refs.length, 4);
+});
+
+test('參考新增：本機資料過期（別台剛新增過同篇同人）→ 伺服器回 duplicate，仍留在視窗並出現「改為編輯這則」', async (t) => {
+  const { page, api } = await openRef(t);
+  await toRef(page);
+  api.seedRef({ id: 'R9', who: '甲', cat: '健康', url: 'https://news.tvbs.com.tw/health/4050001', orig: '別台新增的', title: '別台的改標', created: api.st.now });
+  await openAddRef(page);
+  await page.fill('#fUrl', 'https://news.tvbs.com.tw/health/4050001');
+  await page.waitForFunction(() => document.getElementById('fOrig').value !== '');
+  await page.fill('#fWho', '甲');
+  await page.fill('#fTitle', '我打的改標');
+  await page.click('#save');
+  await page.waitForFunction(() => document.getElementById('err').textContent.includes('「甲」對這篇已經有改標了。'));
+  assert.equal(await page.inputValue('#fTitle'), '我打的改標');
+  await page.waitForFunction(() => document.getElementById('idHint').textContent.includes('改為編輯這則'));
+  await page.click('#idHint button');
+  await page.waitForFunction(() => document.getElementById('dlgTitle').textContent === '編輯 #R9');
 });
 
 test('參考驗證：缺人、缺改標不送出；= 開頭的改標照常存、照常顯示（Review Focus 3）', async (t) => {

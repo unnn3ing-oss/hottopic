@@ -1021,9 +1021,10 @@
       jumpToRef(data.item.id);   // 新增或改人後若被目前篩選擋住，就清掉篩選讓它看得到
       toast('已儲存 #' + data.item.id);
     }).catch(function (err) {
-      if (err.code === 'duplicate' && err.existing) {
-        if (ref) { setErr('「' + who + '」對這篇已經有改標了。'); return; }
-        replaceRef(err.existing); render(); state.saving = false; openRefDialog(err.existing); return;
+      if (err.code === 'duplicate' && err.existing) {   // 留在視窗保留使用者打的改標；新增時補上「改為編輯這則」
+        setErr('「' + who + '」對這篇已經有改標了。');
+        if (!ref) { replaceRef(err.existing); render(); refHint($('fUrl').value.trim()); }
+        return;
       }
       if (err.code === 'unauthorized') return;   // 登入視窗已由 callApi 開啟；保留編輯視窗與草稿
       setErr(err.message);

@@ -135,3 +135,17 @@ test('addRef：鎖被占用回 busy', () => {
   s.gas.lockHeld = true;
   assert.equal(addRef(s).code, 'busy');
 });
+
+test('編號不重複使用：刪掉最新一筆後再新增，拿到新編號（避免別台舊畫面改到另一筆）', () => {
+  const s = setup();
+  addRef(s, { who: '甲' }); addRef(s, { who: '乙' }); addRef(s, { who: '丙' });
+  assert.equal(s.call('deleteRef', { id: 'R3' }).ok, true);
+  assert.equal(addRef(s, { who: '丁' }).data.item.id, 'R4');
+});
+
+test('編號不重複使用：被略過的列（參考誰空白）的編號也算在內，之後補回也不會撞號', () => {
+  const s = setup();
+  addRef(s);
+  s.gas.seedRows('參考', [['R7', '社會', '原', 'https://x.tw/a/7', '改', '', new Date(Date.UTC(2026, 9, 12, 1, 0, 0))]]);
+  assert.equal(addRef(s, { who: '小華' }).data.item.id, 'R8');
+});
