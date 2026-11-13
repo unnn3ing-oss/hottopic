@@ -19,7 +19,13 @@
 </head>
 <body>
 <header class="topbar">
-  <h1>熱門新聞庫</h1>
+  <div class="brand">
+    <h1>熱門新聞庫</h1>
+    <div class="modesw" role="group" aria-label="模式">
+      <button class="mode" id="modeLib" type="button" aria-pressed="true">新聞庫</button>
+      <button class="mode" id="modeRef" type="button" aria-pressed="false">參考</button>
+    </div>
+  </div>
   <div class="search"><input type="search" id="q" placeholder="搜尋標題、小編文、編號" aria-label="搜尋"></div>
   <div class="tools">
     <button class="btn iconbtn searchbtn" id="searchBtn" type="button" aria-label="搜尋" aria-expanded="false"><svg class="ico" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg></button>
@@ -31,11 +37,16 @@
   <div class="split">
       <section class="pane-l">
         <div class="filters">
+          <div class="chips" id="whoChips" hidden></div>
           <div class="chips" id="chips"></div>
           <div class="sortrow">
             <span id="cnt" aria-live="polite"></span>
             <div class="ctl">
               <div class="xsel" id="sortX">
+                <button type="button" class="xsel-btn" aria-haspopup="true" aria-expanded="false"><span class="xsel-lbl">排序</span><span class="xsel-val"></span><span class="xsel-caret" aria-hidden="true">▾</span></button>
+                <div class="xsel-slide" hidden><div class="xsel-opts" role="radiogroup" aria-label="排序"></div></div>
+              </div>
+              <div class="xsel" id="refSortX" hidden>
                 <button type="button" class="xsel-btn" aria-haspopup="true" aria-expanded="false"><span class="xsel-lbl">排序</span><span class="xsel-val"></span><span class="xsel-caret" aria-hidden="true">▾</span></button>
                 <div class="xsel-slide" hidden><div class="xsel-opts" role="radiogroup" aria-label="排序"></div></div>
               </div>

@@ -7,7 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { chromium } = require('playwright');
 const { buildSite } = require('../../scripts/build-site.js');
-const { createFakeApi, seedSample, PASSWORD } = require('../helpers/fake-api.js');
+const { createFakeApi, seedSample, seedRefSample, PASSWORD } = require('../helpers/fake-api.js');
 const lib = require('../../apps-script/lib.js');
 
 const API_URL = 'https://hotnews.test-account.workers.dev';
@@ -1325,4 +1325,150 @@ test('抓取狀態用跟按鈕同形狀的膠囊框顯示；沒有狀態時不�
   await page.click('#cancel');
   await page.click('#addBtn');
   assert.equal(await page.locator('#titleHint').isHidden(), true);                           // 重新開啟：清空並隱藏
+});
+
+/* ---------- 參考模式（唯讀部分） ---------- */
+async function openRef(t, o) {
+  const r = await open(t, o);
+  seedRefSample(r.api);
+  await connect(r.page, !!(o && o.remember));
+  await r.page.waitForSelector('.row');
+  return r;
+}
+const chipTexts = (page, sel) => page.$$eval(sel + ' .chip', (els) => els.map((e) => e.textContent));
+async function toRef(page) { await page.click('#modeRef'); await page.waitForSelector('.row[data-id^="R"]'); }
+
+test('參考模式：切換、列表與兩排篩選', async (t) => {
+  const { page } = await openRef(t);
+  await toRef(page);
+  assert.deepEqual(await rowIds(page), ['R4', 'R3', 'R2', 'R1']);   // 預設新到舊
+  assert.deepEqual((await chipTexts(page, '#whoChips')).map((x) => x.replace(/\s/g, '')), ['全部4', '小明2', '小華1', '阿美1']);
+  assert.equal(await page.locator('#chips .chip.exp').count(), 0);   // 參考模式沒有「已到期」
+  await page.click('#whoChips .chip[data-who="小明"]');
+  assert.deepEqual(await rowIds(page), ['R3', 'R1']);
+  const cats = (await chipTexts(page, '#chips')).map((x) => x.replace(/\s/g, ''));
+  assert.ok(cats.includes('社會1') && cats.includes('生活1') && cats.includes('健康0'), cats.join(','));
+  await page.click('#chips .chip[data-cat="社會"]');
+  assert.deepEqual(await rowIds(page), ['R1']);
+  await page.click('#whoChips .chip[data-who="全部"]');
+  assert.deepEqual(await rowIds(page), ['R2', 'R1']);
+  await page.click('#modeLib');
+  await page.waitForSelector('.row[data-id="4031880"]');
+  assert.equal(await page.locator('.row').count(), 3);
+  assert.equal(await page.locator('#chips .chip.exp').count(), 1);
+});
+
+test('參考模式：搜尋與排序', async (t) => {
+  const { page } = await openRef(t);
+  await toRef(page);
+  await page.fill('#q', '阿美');
+  assert.deepEqual(await rowIds(page), ['R4']);
+  await page.fill('#q', '小華版');
+  assert.deepEqual(await rowIds(page), ['R2']);
+  await page.fill('#q', '');
+  assert.equal(await page.locator('#sortX').isVisible(), false);
+  await page.click('#refSortX .xsel-btn');
+  await page.click('#refSortX [data-v="oldest"]');
+  await page.waitForFunction(() => document.querySelector('.row').dataset.id === 'R1');
+  assert.deepEqual(await rowIds(page), ['R1', 'R2', 'R3', 'R4']);
+  await page.fill('#q', '小明');
+  await page.click('#modeLib');
+  assert.equal(await page.inputValue('#q'), '');   // 切模式清空搜尋
+});
+
+test('參考模式：卡片、同篇其他人、複製標題不標記', async (t) => {
+  const { page, api } = await openRef(t);
+  await toRef(page);
+  await pick(page, 'R1');
+  const card = page.locator('#card .item.ref');
+  assert.match(await card.textContent(), /夜市攤販連假湧入人潮/);
+  assert.match(await card.textContent(), /參考：小明/);
+  assert.match(await card.locator('.others').textContent(), /小華/);
+  assert.match(await card.locator('.others').textContent(), /小華版/);
+  await card.locator('[data-act=rother]').click();
+  await page.waitForSelector('#card .item[data-id="R2"]');
+  await pick(page, 'R3');
+  assert.equal(await page.locator('#card .others').count(), 0);   // 同篇只有一人就沒有該區塊
+  await page.locator('#card [data-act=rcopy]').click();
+  assert.equal(await clip(page), '保養別再拖 小明版');
+  await page.waitForFunction(() => document.getElementById('toast').textContent.includes('已複製標題'));
+  assert.equal(markCalls(api).length, 0);
+});
+
+test('參考模式：新增按鈕文字與排序選單隨模式切換', async (t) => {
+  const { page } = await openRef(t);
+  assert.match(await page.locator('#addBtn').textContent(), /新增新聞/);
+  await toRef(page);
+  assert.match(await page.locator('#addBtn').textContent(), /新增參考/);
+  assert.equal(await page.locator('#sortX').isVisible(), false);
+  assert.equal(await page.locator('#refSortX').isVisible(), true);
+  await page.click('#modeLib');
+  assert.match(await page.locator('#addBtn').textContent(), /新增新聞/);
+  assert.equal(await page.locator('#sortX').isVisible(), true);
+  assert.equal(await page.locator('#refSortX').isVisible(), false);
+});
+
+test('舊後端：參考模式提示後端還沒更新，新聞庫照常（Review Focus 2）', async (t) => {
+  const { page, api } = await openRef(t);
+  api.st.noRefs = true;
+  await page.click('#modeRef');
+  await page.waitForFunction(() => document.getElementById('list').textContent.includes('後端還沒更新'));
+  assert.equal(await page.locator('#whoChips .chip[data-who="小明"]').count(), 0);
+  await page.click('#modeLib');
+  await page.waitForSelector('.row[data-id="4031880"]');
+  assert.equal(await page.locator('.row').count(), 3);
+  assert.equal(await page.locator('#card .item').count(), 1);
+});
+
+test('參考模式：重新整理後記住模式；localStorage 不能存取時照常運作', async (t) => {
+  const { page } = await openRef(t, { remember: true });
+  await toRef(page);
+  await page.reload();
+  await page.waitForSelector('.row[data-id^="R"]');
+  assert.equal(await page.locator('.row').count(), 4);
+  assert.equal(await page.getAttribute('#modeRef', 'aria-pressed'), 'true');
+});
+
+test('模式記憶：hottopic.mode 讀寫丟例外 → 預設新聞庫、切換不當掉', async (t) => {
+  const { page, api } = await open(t, { init: () => {
+    const g = Storage.prototype.getItem, s = Storage.prototype.setItem;
+    Storage.prototype.getItem = function (k) { if (k === 'hottopic.mode') throw new Error('blocked'); return g.call(this, k); };
+    Storage.prototype.setItem = function (k, v) { if (k === 'hottopic.mode') throw new Error('blocked'); return s.call(this, k, v); };
+  } });
+  seedRefSample(api);
+  await connect(page);
+  await page.waitForSelector('.row[data-id="4031880"]');
+  assert.equal(await page.getAttribute('#modeLib', 'aria-pressed'), 'true');
+  await toRef(page);
+  assert.equal(await page.locator('.row').count(), 4);
+});
+
+test('參考模式：內容以文字輸出，不被當 HTML', async (t) => {
+  const { page, api } = await open(t);
+  seedRefSample(api);
+  api.seedRef({ id: 'R5', title: '<img src=x onerror="window.__pwned=1">', who: '<b>壞人</b>', created: api.st.now });
+  await connect(page);
+  await toRef(page);
+  await page.waitForSelector('.row[data-id="R5"]');
+  await pick(page, 'R5');
+  assert.equal(await page.locator('#list img, #card img, #list b, #card b, #whoChips b').count(), 0);
+  assert.equal(await page.evaluate(() => window.__pwned), undefined);
+  assert.match(await page.locator('#card .title').textContent(), /<img src=x/);
+});
+
+test('手機寬度：模式開關在頂欄內，點一列看卡片，返回回列表（參考模式）', async (t) => {
+  const { page, api } = await open(t);
+  seedRefSample(api);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await connect(page);
+  await page.waitForSelector('.row');
+  const box = await page.locator('.modesw').boundingBox();
+  assert.ok(box && box.x >= 0 && box.x + box.width <= 390, JSON.stringify(box));
+  await toRef(page);
+  await page.click('.row[data-id="R3"]');
+  await page.waitForSelector('#card .item.ref[data-id="R3"]', { state: 'visible' });
+  assert.ok(await page.locator('#card [data-act=back]').isVisible());
+  await page.click('#card [data-act=back]');
+  assert.ok(await page.locator('.row').first().isVisible());
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
 });

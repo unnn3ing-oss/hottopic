@@ -4,7 +4,8 @@ const DAY = 864e5;
 
 function createFakeApi(opts = {}) {
   const st = { now: opts.now || Date.UTC(2026, 9, 12, 4, 0, 0), items: [], cats: ['社會', '生活', '健康', '政治', '國際', '娛樂'],
-    sessions: new Set(), seq: 0, legacyBackend: false,   // legacyBackend：模擬還沒更新的舊後端（不認得 last／expires，回傳也沒有 expires 欄位）
+    sessions: new Set(), seq: 0, legacyBackend: false, refs: [], noRefs: false,   // noRefs：模擬還沒更新的舊後端（不認得任何參考動作）
+      // legacyBackend：模擬還沒更新的舊後端（不認得 last／expires，回傳也沒有 expires 欄位）
      titleResult: { title: '自動帶入的原始標題', source: 'og:title' }, calls: [] };
   const ok = (data) => ({ ok: true, data });
   const bad = (code, extra) => Object.assign({ ok: false, code, error: code }, extra);
@@ -17,11 +18,15 @@ function createFakeApi(opts = {}) {
   function seed(item) {
     st.items.push(Object.assign({ cat: '生活', note: '', last: null, count: 0, created: st.now, expires: null, titles: [] }, item));
   }
+  function seedRef(r) {
+    st.refs.push(Object.assign({ id: 'R' + (st.refs.length + 1), cat: '社會', orig: '原標', url: 'https://news.tvbs.com.tw/local/1', title: '改標', who: '小明', created: st.now }, r));
+  }
   const out = (x) => { const c = clone(x); if (st.legacyBackend) delete c.expires; return c; };
   const actions = {
     ping: () => ok({ pong: true }),
     listItems: () => ok({ items: st.items.map(out), cats: clone(st.cats) }),
     fetchTitle: () => ok(clone(st.titleResult)),
+    listRefs: () => ok({ items: clone(st.refs), cats: clone(st.cats) }),
     addItem(a) {
       const id = idOf(a.url) || 'N' + (st.items.length + 1);
       if (find(id)) return bad('duplicate', { existing: clone(find(id)) });
@@ -71,16 +76,16 @@ function createFakeApi(opts = {}) {
       if (req.password !== PASSWORD) return JSON.stringify(bad('unauthorized'));
       const session = 'fake-session-' + (++st.seq);
       st.sessions.add(session);
-      return JSON.stringify(ok({ session, exp: Math.floor(Date.now() / 1000) + 43200 }));
+      return JSON.stringify(ok({ session, exp: Math.floor(Date.now() / 1000) + 43200, ttl: 43200 }));
     }
     if (path !== '/api') return JSON.stringify(bad('bad_request'));
     if (typeof req.session !== 'string' || !st.sessions.has(req.session)) return JSON.stringify(bad('unauthorized'));
     st.calls.push({ action: req.action, args: req.args });
-    if (!Object.prototype.hasOwnProperty.call(actions, req.action)) return JSON.stringify(bad('bad_request'));
+    if (!Object.prototype.hasOwnProperty.call(actions, req.action) || (st.noRefs && /Refs?$/.test(req.action))) return JSON.stringify(bad('bad_request'));
     return JSON.stringify(actions[req.action](req.args || {}));
   }
   const expireSessions = () => st.sessions.clear();
-  return { st, handle, seed, expireSessions, PASSWORD, DAY };
+  return { st, handle, seed, seedRef, expireSessions, PASSWORD, DAY };
 }
 
 function seedSample(api) {
@@ -97,4 +102,17 @@ function seedSample(api) {
     orig: '捷運末班車延後營運 跨年夜加開班次時間一次看', titles: [], note: '' });
 }
 
-module.exports = { createFakeApi, seedSample, PASSWORD };
+// 參考範例：R1→R4 由舊到新；R1、R2 是同一篇（小明、小華），R3 生活（小明），R4 健康（阿美）
+function seedRefSample(api) {
+  const { st, DAY } = api, N = st.now;
+  api.seedRef({ id: 'R1', cat: '社會', url: 'https://news.tvbs.com.tw/local/4031880', created: N - 4 * DAY, who: '小明',
+    orig: '夜市攤販連假湧入人潮 業者喊「一晚賣出平常三天的量」', title: '連假夜市爆滿\n小明版' });
+  api.seedRef({ id: 'R2', cat: '社會', url: 'https://news.tvbs.com.tw/local/4031880', created: N - 3 * DAY, who: '小華',
+    orig: '夜市攤販連假湧入人潮 業者喊「一晚賣出平常三天的量」', title: '一晚抵三天！夜市人潮爆量 小華版' });
+  api.seedRef({ id: 'R3', cat: '生活', url: 'https://news.tvbs.com.tw/cars/4032757', created: N - 2 * DAY, who: '小明',
+    orig: '汽車定期保養別再等到出問題！內行人揭 5 項最容易被忽略的檢查重點', title: '保養別再拖 小明版' });
+  api.seedRef({ id: 'R4', cat: '健康', url: 'https://news.tvbs.com.tw/health/4035001', created: N - 1 * DAY, who: '阿美',
+    orig: '睡前滑手機傷眼？醫師曝 3 招護眼', title: '睡前滑手機超傷眼\n醫師教你 3 招 阿美版' });
+}
+
+module.exports = { createFakeApi, seedSample, seedRefSample, PASSWORD };
