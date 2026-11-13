@@ -3,7 +3,7 @@
  * 頂層只用 var 與 function；語法限 ES2019 以內。 */
 
 var COMMENT_BASE_URL = 'https://news.tvbs.com.tw/news/';
-var LIMITS = { url: 2000, orig: 500, title: 500, note: 5000, variants: 20 };
+var LIMITS = { url: 2000, orig: 500, title: 500, note: 5000, variants: 20, who: 30 };
 
 // 編號 = 網址路徑中最長的一串數字（同長取先出現者）；忽略主機、帳密、埠、query、hash
 function extractId(url) {
@@ -48,6 +48,21 @@ function nextSerialId(ids) {
   return 'N' + (max + 1);
 }
 
+// 參考模式：「同一篇文章」的比對鍵（編號優先，沒有數字就用整個網址）
+function articleKey(url) {
+  return extractId(url) || String(url == null ? '' : url).replace(/^\s+|\s+$/g, '');
+}
+
+// 參考編號 R + 流水號（只看 R 開頭的編號）
+function nextRefId(ids) {
+  var max = 0;
+  for (var i = 0; i < ids.length; i++) {
+    var m = /^R(\d+)$/.exec(String(ids[i]));
+    if (m && Number(m[1]) > max) max = Number(m[1]);
+  }
+  return 'R' + (max + 1);
+}
+
 // 換行統一 \n、去控制字元（保留 \n 與 \t）、去頭部空白行與尾部空白
 function normalizeText(s) {
   return String(s == null ? '' : s)
@@ -83,6 +98,12 @@ function isDateStr(s) {
 // 毫秒 → 台北當地日期字串
 function dateStrTaipei(ms) {
   return new Date(ms + TAIPEI_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+// 班段（台北時間，00:00／08:00／16:00 交班）：回 'YYYY-MM-DD#n'，n = 0（00–08）、1（08–16）、2（16–24）
+function shiftKey(ms) {
+  var hour = new Date(ms + TAIPEI_OFFSET_MS).getUTCHours();
+  return dateStrTaipei(ms) + '#' + Math.floor(hour / 8);
 }
 
 // YYYY-MM-DD 是固定長度，字串比較等於日期比較
@@ -195,7 +216,7 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     COMMENT_BASE_URL: COMMENT_BASE_URL, LIMITS: LIMITS, extractId: extractId, isHttpUrl: isHttpUrl,
     normalizeUrl: normalizeUrl, nextSerialId: nextSerialId, normalizeText: normalizeText,
-    normalizeLine: normalizeLine, buildComment: buildComment,
+    normalizeLine: normalizeLine, buildComment: buildComment, articleKey: articleKey, nextRefId: nextRefId, shiftKey: shiftKey,
     TAIPEI_OFFSET_MS: TAIPEI_OFFSET_MS, isDateStr: isDateStr, dateStrTaipei: dateStrTaipei, isExpired: isExpired, normalizeDateTimeText: normalizeDateTimeText,
     TITLE_SOURCES: TITLE_SOURCES, SITE_SUFFIXES: SITE_SUFFIXES, HTML_SCAN_LIMIT: HTML_SCAN_LIMIT,
     cleanTitle: cleanTitle, titleFromHtml: titleFromHtml, CATEGORY_RULES: CATEGORY_RULES, guessCategory: guessCategory

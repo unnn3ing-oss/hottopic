@@ -7,7 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { chromium } = require('playwright');
 const { buildSite } = require('../../scripts/build-site.js');
-const { createFakeApi, seedSample, PASSWORD } = require('../helpers/fake-api.js');
+const { createFakeApi, seedSample, seedRefSample, PASSWORD } = require('../helpers/fake-api.js');
 const lib = require('../../apps-script/lib.js');
 
 const API_URL = 'https://hotnews.test-account.workers.dev';
@@ -29,10 +29,10 @@ test.before(async () => {
 });
 test.after(async () => { await browser.close(); server.close(); });
 
-async function open(t, { sample = true, init = null } = {}) {
+async function open(t, { sample = true, init = null, now = null, tz = 'Asia/Taipei' } = {}) {
   const api = createFakeApi();
   if (sample) seedSample(api);
-  const ctx = await browser.newContext({ timezoneId: 'Asia/Taipei', locale: 'zh-TW', viewport: { width: 900, height: 900 } });
+  const ctx = await browser.newContext({ timezoneId: tz, locale: 'zh-TW', viewport: { width: 900, height: 900 } });
   await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin });
   const page = await ctx.newPage();
   const problems = [];
@@ -48,6 +48,7 @@ async function open(t, { sample = true, init = null } = {}) {
     await route.fulfill({ status: 200, contentType: 'text/plain', headers: { 'access-control-allow-origin': '*' },
       body: r.method() === 'POST' ? api.handle(path, r.postData()) : 'ok' });
   });
+  if (now) await page.clock.setFixedTime(now);   // 固定瀏覽器的現在時間（Date.now／new Date），計時器照常跑
   await page.goto(origin + '/');
   t.after(async () => {
     const csp = await page.evaluate(() => window.__csp || []).catch(() => []);
@@ -1325,4 +1326,441 @@ test('抓取狀態用跟按鈕同形狀的膠囊框顯示；沒有狀態時不�
   await page.click('#cancel');
   await page.click('#addBtn');
   assert.equal(await page.locator('#titleHint').isHidden(), true);                           // 重新開啟：清空並隱藏
+});
+
+/* ---------- 參考模式（唯讀部分） ---------- */
+async function openRef(t, o) {
+  const r = await open(t, o);
+  seedRefSample(r.api);
+  await connect(r.page, !!(o && o.remember));
+  await r.page.waitForSelector('.row');
+  return r;
+}
+const chipTexts = (page, sel) => page.$$eval(sel + ' .chip', (els) => els.map((e) => e.textContent));
+async function toRef(page) { await page.click('#modeRef'); await page.waitForSelector('.row[data-id^="R"]'); }
+
+test('參考模式：切換、列表與兩排篩選', async (t) => {
+  const { page } = await openRef(t);
+  await toRef(page);
+  assert.deepEqual(await rowIds(page), ['R4', 'R3', 'R2', 'R1']);   // 預設新到舊
+  assert.deepEqual((await chipTexts(page, '#whoChips')).map((x) => x.replace(/\s/g, '')), ['全部4', '小明2', '小華1', '阿美1']);
+  assert.equal(await page.locator('#chips .chip.exp').count(), 0);   // 參考模式沒有「已到期」
+  await page.click('#whoChips .chip[data-who="小明"]');
+  assert.deepEqual(await rowIds(page), ['R3', 'R1']);
+  const cats = (await chipTexts(page, '#chips')).map((x) => x.replace(/\s/g, ''));
+  assert.ok(cats.includes('社會1') && cats.includes('生活1') && cats.includes('健康0'), cats.join(','));
+  await page.click('#chips .chip[data-cat="社會"]');
+  assert.deepEqual(await rowIds(page), ['R1']);
+  await page.click('#whoChips .chip[data-who="全部"]');
+  assert.deepEqual(await rowIds(page), ['R2', 'R1']);
+  await page.click('#modeLib');
+  await page.waitForSelector('.row[data-id="4031880"]');
+  assert.equal(await page.locator('.row').count(), 3);
+  assert.equal(await page.locator('#chips .chip.exp').count(), 1);
+});
+
+test('參考模式：搜尋與排序', async (t) => {
+  const { page } = await openRef(t);
+  await toRef(page);
+  await page.fill('#q', '阿美');
+  assert.deepEqual(await rowIds(page), ['R4']);
+  await page.fill('#q', '小華版');
+  assert.deepEqual(await rowIds(page), ['R2']);
+  await page.fill('#q', '');
+  assert.equal(await page.locator('#sortX').isVisible(), false);
+  await page.click('#refSortX .xsel-btn');
+  await page.click('#refSortX [data-v="oldest"]');
+  await page.waitForFunction(() => document.querySelector('.row').dataset.id === 'R1');
+  assert.deepEqual(await rowIds(page), ['R1', 'R2', 'R3', 'R4']);
+  await page.fill('#q', '小明');
+  await page.click('#modeLib');
+  assert.equal(await page.inputValue('#q'), '');   // 切模式清空搜尋
+});
+
+test('參考模式：卡片、同篇其他人、複製標題不標記', async (t) => {
+  const { page, api } = await openRef(t);
+  await toRef(page);
+  await pick(page, 'R1');
+  const card = page.locator('#card .item.ref');
+  assert.match(await card.textContent(), /夜市攤販連假湧入人潮/);
+  assert.match(await card.textContent(), /參考：小明/);
+  assert.match(await card.locator('.others').textContent(), /小華/);
+  assert.match(await card.locator('.others').textContent(), /小華版/);
+  await card.locator('[data-act=rother]').click();
+  await page.waitForSelector('#card .item[data-id="R2"]');
+  await pick(page, 'R3');
+  assert.equal(await page.locator('#card .others').count(), 0);   // 同篇只有一人就沒有該區塊
+  await page.locator('#card [data-act=rcopy]').click();
+  assert.equal(await clip(page), '保養別再拖 小明版');
+  await page.waitForFunction(() => document.getElementById('toast').textContent.includes('已複製標題'));
+  assert.equal(markCalls(api).length, 0);
+});
+
+test('參考模式：新增按鈕文字與排序選單隨模式切換', async (t) => {
+  const { page } = await openRef(t);
+  assert.match(await page.locator('#addBtn').textContent(), /新增新聞/);
+  await toRef(page);
+  assert.match(await page.locator('#addBtn').textContent(), /新增參考/);
+  assert.equal(await page.locator('#sortX').isVisible(), false);
+  assert.equal(await page.locator('#refSortX').isVisible(), true);
+  await page.click('#modeLib');
+  assert.match(await page.locator('#addBtn').textContent(), /新增新聞/);
+  assert.equal(await page.locator('#sortX').isVisible(), true);
+  assert.equal(await page.locator('#refSortX').isVisible(), false);
+});
+
+test('舊後端：參考模式提示後端還沒更新，新聞庫照常（Review Focus 2）', async (t) => {
+  const { page, api } = await openRef(t);
+  api.st.noRefs = true;
+  await page.click('#modeRef');
+  await page.waitForFunction(() => document.getElementById('list').textContent.includes('後端還沒更新'));
+  assert.equal(await page.locator('#whoChips .chip[data-who="小明"]').count(), 0);
+  await page.click('#modeLib');
+  await page.waitForSelector('.row[data-id="4031880"]');
+  assert.equal(await page.locator('.row').count(), 3);
+  assert.equal(await page.locator('#card .item').count(), 1);
+});
+
+test('參考模式：重新整理後記住模式；localStorage 不能存取時照常運作', async (t) => {
+  const { page } = await openRef(t, { remember: true });
+  await toRef(page);
+  await page.reload();
+  await page.waitForSelector('.row[data-id^="R"]');
+  assert.equal(await page.locator('.row').count(), 4);
+  assert.equal(await page.getAttribute('#modeRef', 'aria-pressed'), 'true');
+});
+
+test('模式記憶：hottopic.mode 讀寫丟例外 → 預設新聞庫、切換不當掉', async (t) => {
+  const { page, api } = await open(t, { init: () => {
+    const g = Storage.prototype.getItem, s = Storage.prototype.setItem;
+    Storage.prototype.getItem = function (k) { if (k === 'hottopic.mode') throw new Error('blocked'); return g.call(this, k); };
+    Storage.prototype.setItem = function (k, v) { if (k === 'hottopic.mode') throw new Error('blocked'); return s.call(this, k, v); };
+  } });
+  seedRefSample(api);
+  await connect(page);
+  await page.waitForSelector('.row[data-id="4031880"]');
+  assert.equal(await page.getAttribute('#modeLib', 'aria-pressed'), 'true');
+  await toRef(page);
+  assert.equal(await page.locator('.row').count(), 4);
+});
+
+test('參考模式：內容以文字輸出，不被當 HTML', async (t) => {
+  const { page, api } = await open(t);
+  seedRefSample(api);
+  api.seedRef({ id: 'R5', title: '<img src=x onerror="window.__pwned=1">', who: '<b>壞人</b>', created: api.st.now });
+  await connect(page);
+  await toRef(page);
+  await page.waitForSelector('.row[data-id="R5"]');
+  await pick(page, 'R5');
+  assert.equal(await page.locator('#list img, #card img, #list b, #card b, #whoChips b').count(), 0);
+  assert.equal(await page.evaluate(() => window.__pwned), undefined);
+  assert.match(await page.locator('#card .title').textContent(), /<img src=x/);
+});
+
+test('手機寬度：模式開關在頂欄內，點一列看卡片，返回回列表（參考模式）', async (t) => {
+  const { page, api } = await open(t);
+  seedRefSample(api);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await connect(page);
+  await page.waitForSelector('.row');
+  const box = await page.locator('.modesw').boundingBox();
+  assert.ok(box && box.x >= 0 && box.x + box.width <= 390, JSON.stringify(box));
+  await toRef(page);
+  await page.click('.row[data-id="R3"]');
+  await page.waitForSelector('#card .item.ref[data-id="R3"]', { state: 'visible' });
+  assert.ok(await page.locator('#card [data-act=back]').isVisible());
+  await page.click('#card [data-act=back]');
+  assert.ok(await page.locator('.row').first().isVisible());
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
+});
+
+/* ---------- 參考模式：新增、編輯、刪除 ---------- */
+const refCalls = (api, action) => api.st.calls.filter((c) => c.action === action).map((c) => c.args);
+async function openAddRef(page) { await page.click('#addBtn'); await page.waitForSelector('#dlg[open]'); }
+
+test('參考新增：欄位、自動帶入原標、送出內容（人名已正規化）', async (t) => {
+  const { page, api } = await openRef(t);
+  await toRef(page);
+  await openAddRef(page);
+  assert.equal(await page.locator('#dlgTitle').textContent(), '新增參考');
+  for (const sel of ['#fNote', '#usedBox', '#fExp', '#addVar']) assert.equal(await page.locator(sel).isHidden(), true, sel);
+  for (const sel of ['#fWho', '#fTitle']) assert.equal(await page.locator(sel).isVisible(), true, sel);
+  assert.equal(await page.getAttribute('#fWho', 'maxlength'), '30');
+  assert.deepEqual(await page.$$eval('#whoList option', (els) => els.map((e) => e.value)), ['小明', '小華', '阿美']);
+  await page.fill('#fUrl', 'https://news.tvbs.com.tw/health/4040001');
+  await page.waitForFunction(() => document.getElementById('fOrig').value === '自動帶入的原始標題');
+  assert.equal(await page.inputValue('#fCat'), '健康');
+  await page.fill('#fWho', '  阿美 ');
+  await page.fill('#fTitle', '阿美的新改標\n第二行');
+  await page.click('#save');
+  await page.waitForSelector('#dlg', { state: 'hidden' });
+  assert.deepEqual(refCalls(api, 'addRef'), [{ url: 'https://news.tvbs.com.tw/health/4040001', orig: '自動帶入的原始標題', cat: '健康', title: '阿美的新改標\n第二行', who: '阿美' }]);
+  assert.equal(await page.locator('.row').count(), 5);
+  assert.ok((await toastText(page)).includes('已儲存 #R5'));
+  assert.equal(await page.getAttribute('#card .item', 'data-id'), 'R5');
+  assert.equal((await page.locator('#whoChips .chip[data-who="阿美"]').textContent()).replace(/\s/g, ''), '阿美2');
+});
+
+test('參考新增：同篇提示與重複（Review Focus 1）', async (t) => {
+  const { page, api } = await openRef(t);
+  await toRef(page);
+  await openAddRef(page);
+  await page.fill('#fUrl', 'https://news.tvbs.com.tw/local/4031880');
+  await page.waitForFunction(() => document.getElementById('idHint').textContent.includes('這篇已有 2 個人的改標：小明、小華'));
+  await page.fill('#fWho', '小明');
+  await page.waitForFunction(() => document.getElementById('idHint').textContent.includes('這篇已有「小明」的改標'));
+  await page.click('#idHint button');
+  await page.waitForFunction(() => document.getElementById('dlgTitle').textContent === '編輯 #R1');
+  await page.click('#cancel');
+  // 不點提示、直接儲存：伺服器回 duplicate → 留在新增視窗、保留使用者打的改標，並提供「改為編輯這則」
+  await openAddRef(page);
+  await page.fill('#fUrl', 'https://news.tvbs.com.tw/local/4031880?from=x');
+  await page.waitForFunction(() => document.getElementById('fOrig').value !== '');
+  await page.fill('#fWho', ' 小明');
+  await page.fill('#fTitle', '重複的');
+  await page.click('#save');
+  await page.waitForFunction(() => document.getElementById('err').textContent.includes('「小明」對這篇已經有改標了。'));
+  assert.equal(await page.locator('#dlgTitle').textContent(), '新增參考');
+  assert.equal(await page.inputValue('#fTitle'), '重複的');
+  await page.click('#idHint button');
+  await page.waitForFunction(() => document.getElementById('dlgTitle').textContent === '編輯 #R1');
+  assert.equal(refCalls(api, 'addRef').length, 1);
+  assert.equal(api.st.refs.length, 4);
+});
+
+test('參考新增：本機資料過期（別台剛新增過同篇同人）→ 伺服器回 duplicate，仍留在視窗並出現「改為編輯這則」', async (t) => {
+  const { page, api } = await openRef(t);
+  await toRef(page);
+  api.seedRef({ id: 'R9', who: '甲', cat: '健康', url: 'https://news.tvbs.com.tw/health/4050001', orig: '別台新增的', title: '別台的改標', created: api.st.now });
+  await openAddRef(page);
+  await page.fill('#fUrl', 'https://news.tvbs.com.tw/health/4050001');
+  await page.waitForFunction(() => document.getElementById('fOrig').value !== '');
+  await page.fill('#fWho', '甲');
+  await page.fill('#fTitle', '我打的改標');
+  await page.click('#save');
+  await page.waitForFunction(() => document.getElementById('err').textContent.includes('「甲」對這篇已經有改標了。'));
+  assert.equal(await page.inputValue('#fTitle'), '我打的改標');
+  await page.waitForFunction(() => document.getElementById('idHint').textContent.includes('改為編輯這則'));
+  await page.click('#idHint button');
+  await page.waitForFunction(() => document.getElementById('dlgTitle').textContent === '編輯 #R9');
+});
+
+test('參考驗證：缺人、缺改標不送出；= 開頭的改標照常存、照常顯示（Review Focus 3）', async (t) => {
+  const { page, api } = await openRef(t);
+  await toRef(page);
+  await openAddRef(page);
+  await page.fill('#fUrl', 'https://news.tvbs.com.tw/health/4040002');
+  await page.waitForFunction(() => document.getElementById('fOrig').value !== '');
+  await page.click('#save');
+  assert.equal(await page.locator('#err').textContent(), '請填參考誰。');
+  await page.fill('#fWho', '阿美');
+  await page.click('#save');
+  assert.equal(await page.locator('#err').textContent(), '請填改標。');
+  assert.equal(refCalls(api, 'addRef').length, 0);
+  await page.fill('#fTitle', '=1+1');
+  await page.click('#save');
+  await page.waitForSelector('#dlg', { state: 'hidden' });
+  assert.equal(refCalls(api, 'addRef')[0].title, '=1+1');
+  assert.equal(await page.locator('.row[data-id="R5"] h3').textContent(), '=1+1');
+});
+
+test('參考編輯：網址與原標唯讀；送出只含 id、分類、改標、人；篩選的人改名後退回全部', async (t) => {
+  const { page, api } = await openRef(t);
+  await toRef(page);
+  await page.click('#whoChips .chip[data-who="小華"]');
+  assert.deepEqual(await rowIds(page), ['R2']);
+  await page.click('#card [data-act=redit]');
+  await page.waitForSelector('#dlg[open]');
+  assert.equal(await page.locator('#dlgTitle').textContent(), '編輯 #R2');
+  assert.equal(await page.getAttribute('#fUrl', 'readonly'), '');
+  assert.equal(await page.getAttribute('#fOrig', 'readonly'), '');
+  assert.equal(await page.locator('#reTitle').isHidden(), true);
+  assert.equal(await page.locator('#del').isVisible(), true);
+  assert.equal(await page.inputValue('#fWho'), '小華');
+  await page.selectOption('#fCat', '生活');
+  await page.fill('#fWho', '阿美');
+  await page.fill('#fTitle', '新標題');
+  await page.click('#save');
+  await page.waitForSelector('#dlg', { state: 'hidden' });
+  assert.deepEqual(refCalls(api, 'updateRef'), [{ id: 'R2', cat: '生活', title: '新標題', who: '阿美' }]);
+  assert.equal(await page.locator('.row').count(), 4);   // 篩選已退回「全部」
+  assert.equal((await page.locator('#whoChips .chip[data-who="阿美"]').textContent()).replace(/\s/g, ''), '阿美2');
+  assert.equal(await page.locator('#whoChips .chip[data-who="小華"]').count(), 0);
+  assert.equal(await page.locator('.row[data-id="R2"] h3').textContent(), '新標題');
+});
+
+test('參考編輯：改成同篇已有的人 → 留在視窗並提示', async (t) => {
+  const { page } = await openRef(t);
+  await toRef(page);
+  await pick(page, 'R2');
+  await page.click('#card [data-act=redit]');
+  await page.waitForSelector('#dlg[open]');
+  await page.fill('#fWho', '小明');
+  await page.click('#save');
+  await page.waitForFunction(() => document.getElementById('err').textContent.includes('「小明」對這篇已經有改標了。'));
+  assert.equal(await page.locator('#dlg').evaluate((d) => d.open), true);
+});
+
+test('參考刪除：兩段式，刪後列消失、人那排數字更新', async (t) => {
+  const { page, api } = await openRef(t);
+  await toRef(page);
+  await pick(page, 'R1');
+  await page.click('#card [data-act=redit]');
+  await page.waitForSelector('#dlg[open]');
+  await page.click('#del');
+  assert.equal(await page.locator('#del').textContent(), '再按一次刪除（無法復原）');
+  assert.equal(refCalls(api, 'deleteRef').length, 0);
+  await page.click('#del');
+  await page.waitForSelector('#dlg', { state: 'hidden' });
+  assert.deepEqual(refCalls(api, 'deleteRef'), [{ id: 'R1' }]);
+  assert.deepEqual(await rowIds(page), ['R4', 'R3', 'R2']);
+  assert.ok((await toastText(page)).includes('已刪除 #R1'));
+  assert.equal((await page.locator('#whoChips .chip[data-who="小明"]').textContent()).replace(/\s/g, ''), '小明1');
+});
+
+test('切回新聞庫：新增視窗恢復新聞庫欄位', async (t) => {
+  const { page } = await openRef(t);
+  await toRef(page);
+  await page.click('#modeLib');
+  await page.waitForSelector('.row[data-id="4031880"]');
+  await page.click('#addBtn');
+  await page.waitForSelector('#dlg[open]');
+  assert.equal(await page.locator('#dlgTitle').textContent(), '新增新聞');
+  for (const sel of ['#fNote', '#usedBox', '#fExp']) assert.equal(await page.locator(sel).isVisible(), true, sel);
+  for (const sel of ['#fWho', '#fTitle']) assert.equal(await page.locator(sel).isHidden(), true, sel);
+});
+
+/* ---------- 參考模式：本班預設人選 ---------- */
+let refSeq = 4040100;
+async function saveRef(page, who, title = '標題') {   // 新增一筆（每次用新網址，避免同篇同人重複），人留空表示用預填的
+  await openAddRef(page);
+  await page.fill('#fUrl', 'https://news.tvbs.com.tw/health/' + (++refSeq));
+  await page.waitForFunction(() => document.getElementById('fOrig').value !== '');
+  if (who !== null) await page.fill('#fWho', who);
+  await page.fill('#fTitle', title);
+  await page.click('#save');
+  await page.waitForSelector('#dlg', { state: 'hidden' });
+}
+const storedWho = (page) => page.evaluate(() => { const v = localStorage.getItem('hottopic.refWho'); return v === null ? null : v; });
+const T0750 = new Date('2026-11-13T07:50:00+08:00');
+
+test('班段預設：第一次成功儲存後，之後新增自動預填', async (t) => {
+  const { page } = await openRef(t, { now: T0750 });
+  await toRef(page);
+  await openAddRef(page);
+  assert.equal(await page.inputValue('#fWho'), '');
+  assert.equal(await page.locator('#whoHint').isHidden(), true);
+  await page.click('#cancel');
+  await saveRef(page, '小明');
+  await openAddRef(page);
+  assert.equal(await page.inputValue('#fWho'), '小明');
+  assert.match(await page.locator('#whoHint').textContent(), /本班預設：小明/);
+  assert.equal(await page.locator('#whoSet').isHidden(), true);
+  const v = JSON.parse(await storedWho(page));
+  assert.deepEqual(v, { who: '小明', shift: '2026-11-13#0' });
+});
+
+test('班段預設：打到一半（沒儲存）不記錄', async (t) => {
+  const { page } = await openRef(t, { now: T0750 });
+  await toRef(page);
+  await openAddRef(page);
+  await page.fill('#fWho', '小華');
+  await page.click('#cancel');
+  await openAddRef(page);
+  assert.equal(await page.inputValue('#fWho'), '');
+  assert.equal(await storedWho(page), null);
+});
+
+test('班段預設：逐篇改人不影響預設，可用按鈕改預設', async (t) => {
+  const { page } = await openRef(t, { now: T0750 });
+  await toRef(page);
+  await saveRef(page, '小明');
+  await openAddRef(page);
+  await page.fill('#fWho', '小華');
+  assert.equal(await page.locator('#whoSet').isVisible(), true);
+  await page.fill('#fWho', '小明');
+  assert.equal(await page.locator('#whoSet').isHidden(), true);   // 等於預設時按鈕隱藏
+  await page.fill('#fWho', '小華');
+  await page.click('#cancel');
+  await saveRef(page, '小華');                                     // 這篇改填小華
+  await openAddRef(page);
+  assert.equal(await page.inputValue('#fWho'), '小明');            // 預設仍是小明
+  await page.fill('#fWho', '小華');
+  await page.click('#whoSet');
+  assert.ok((await toastText(page)).includes('已設為本班預設'));
+  assert.equal(await page.locator('#whoSet').isHidden(), true);
+  assert.match(await page.locator('#whoHint').textContent(), /本班預設：小華/);
+  await page.click('#cancel');
+  await openAddRef(page);
+  assert.equal(await page.inputValue('#fWho'), '小華');
+});
+
+test('班段預設：編輯既有資料不預填、也不改預設', async (t) => {
+  const { page } = await openRef(t, { now: T0750 });
+  await toRef(page);
+  await saveRef(page, '小明');
+  await pick(page, 'R2');
+  await page.click('#card [data-act=redit]');
+  await page.waitForSelector('#dlg[open]');
+  assert.equal(await page.inputValue('#fWho'), '小華');
+  assert.equal(await page.locator('#whoHint').isHidden(), true);
+  assert.equal(await page.locator('#whoSet').isHidden(), true);
+  await page.fill('#fWho', '阿美');
+  await page.click('#save');
+  await page.waitForSelector('#dlg', { state: 'hidden' });
+  assert.equal(JSON.parse(await storedWho(page)).who, '小明');
+});
+
+for (const [name, from, to, keep] of [
+  ['00:00–08:00 → 08:00', '2026-11-13T07:59:59+08:00', '2026-11-13T08:00:00+08:00', false],
+  ['08:00–16:00 → 16:00', '2026-11-13T15:59:59+08:00', '2026-11-13T16:00:00+08:00', false],
+  ['16:00–24:00 → 隔天 00:00', '2026-11-13T23:59:59+08:00', '2026-11-14T00:00:00+08:00', false],
+  ['同一班內（08:00 → 15:59:59）不失效', '2026-11-13T08:00:00+08:00', '2026-11-13T15:59:59+08:00', true]
+]) {
+  test('班段交界（Review Focus 5）：' + name, async (t) => {
+    const { page } = await openRef(t, { now: new Date(from) });
+    await toRef(page);
+    await saveRef(page, '小明');
+    await page.clock.setFixedTime(new Date(to));
+    await openAddRef(page);
+    assert.equal(await page.inputValue('#fWho'), keep ? '小明' : '');
+    assert.equal(await storedWho(page) === null, !keep);   // 跨班的預設會被清掉
+  });
+}
+
+test('班段：瀏覽器時區不是台北，仍照台北時間換班（Review Focus 5）', async (t) => {
+  const { page } = await openRef(t, { now: new Date('2026-11-13T07:59:59+08:00'), tz: 'America/New_York' });
+  await toRef(page);
+  await saveRef(page, '小明');
+  assert.equal(JSON.parse(await storedWho(page)).shift, '2026-11-13#0');
+  await page.clock.setFixedTime(new Date('2026-11-13T08:00:00+08:00'));
+  await openAddRef(page);
+  assert.equal(await page.inputValue('#fWho'), '');
+});
+
+test('班段：localStorage 內容壞掉、或讀寫丟例外，新增照常（Review Focus 5）', async (t) => {
+  const bad = await openRef(t, { now: T0750, init: () => { localStorage.setItem('hottopic.refWho', 'not json'); } });
+  await toRef(bad.page);
+  await openAddRef(bad.page);
+  assert.equal(await bad.page.inputValue('#fWho'), '');
+  await bad.page.click('#cancel');
+  await saveRef(bad.page, '小明');
+  assert.equal(JSON.parse(await storedWho(bad.page)).who, '小明');
+});
+
+test('班段：hottopic.refWho 讀寫都丟例外 → 不預填、儲存照常成功', async (t) => {
+  const { page, api } = await openRef(t, { now: T0750, init: () => {
+    const g = Storage.prototype.getItem, s = Storage.prototype.setItem, r = Storage.prototype.removeItem;
+    Storage.prototype.getItem = function (k) { if (k === 'hottopic.refWho') throw new Error('blocked'); return g.call(this, k); };
+    Storage.prototype.setItem = function (k, v) { if (k === 'hottopic.refWho') throw new Error('blocked'); return s.call(this, k, v); };
+    Storage.prototype.removeItem = function (k) { if (k === 'hottopic.refWho') throw new Error('blocked'); return r.call(this, k); };
+  } });
+  await toRef(page);
+  await openAddRef(page);
+  assert.equal(await page.inputValue('#fWho'), '');
+  await page.click('#cancel');
+  await saveRef(page, '小明');
+  assert.equal(api.st.refs.length, 5);
+  await openAddRef(page);
+  assert.equal(await page.inputValue('#fWho'), '');
 });

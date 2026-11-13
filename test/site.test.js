@@ -6,7 +6,7 @@ const path = require('node:path');
 const { buildSite } = require('../scripts/build-site.js');
 
 const CSP = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src https://*.workers.dev; img-src 'self' data:; base-uri 'none'; form-action 'none'";
-const IDS = ['settingsBtn', 'addBtn', 'q', 'sortX', 'sizeX', 'pager', 'chips', 'cnt', 'list', 'card', 'settingsDlg', 'settingsForm', 'sUrl', 'sToken',
+const IDS = ['settingsBtn', 'addBtn', 'q', 'sortX', 'sizeX', 'modeLib', 'modeRef', 'whoChips', 'refSortX', 'fWho', 'whoList', 'whoHint', 'whoSet', 'fTitle', 'pager', 'chips', 'cnt', 'list', 'card', 'settingsDlg', 'settingsForm', 'sUrl', 'sToken',
   'sRemember', 'sMsg', 'sSteps', 'sClear', 'sSave', 'dlg', 'form', 'dlgTitle', 'fUrl', 'idHint', 'fCat', 'fOrig',
   'titleHint', 'reTitle', 'vars', 'addVar', 'usedBox', 'fUsed0', 'fUsed1', 'lastRow', 'fLast', 'fExp', 'fExpClear', 'expHint', 'fNote', 'err', 'del', 'cancel', 'save', 'toast'];
 

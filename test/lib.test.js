@@ -14,7 +14,7 @@ test('測試沙箱沒有 URL / TextEncoder / document（等同 Apps Script）', 
 
 test('常數', () => {
   assert.equal(lib.COMMENT_BASE_URL, 'https://news.tvbs.com.tw/news/');
-  assert.deepEqual(JSON.parse(JSON.stringify(lib.LIMITS)), { url: 2000, orig: 500, title: 500, note: 5000, variants: 20 });
+  assert.deepEqual(JSON.parse(JSON.stringify(lib.LIMITS)), { url: 2000, orig: 500, title: 500, note: 5000, variants: 20, who: 30 });
 });
 
 test('extractId', () => {
@@ -144,4 +144,32 @@ test('normalizeDateTimeText：12 碼數字或 YYYY/MM/DD HH:mm，24 小時制，
     assert.equal(n(bad), null, String(bad));
   }
   assert.equal(n('202402290000'), '2024/02/29 00:00');   // 閏日
+});
+
+/* ---------- 參考模式：班段、文章比對、編號 ---------- */
+test('LIMITS.who 為 30', () => { assert.equal(lib.LIMITS.who, 30); });
+
+test('shiftKey 班段邊界（台北時間 00:00／08:00／16:00 交班）', () => {
+  const k = (iso) => lib.shiftKey(Date.parse(iso));
+  assert.equal(k('2026-11-13T07:59:59+08:00'), '2026-11-13#0');
+  assert.equal(k('2026-11-13T08:00:00+08:00'), '2026-11-13#1');
+  assert.equal(k('2026-11-13T15:59:59+08:00'), '2026-11-13#1');
+  assert.equal(k('2026-11-13T16:00:00+08:00'), '2026-11-13#2');
+  assert.equal(k('2026-11-13T23:59:59+08:00'), '2026-11-13#2');
+  assert.equal(k('2026-11-14T00:00:00+08:00'), '2026-11-14#0');
+});
+
+test('shiftKey 不受執行環境時區影響（UTC 16:00 = 台北隔天 00:00）', () => {
+  assert.equal(lib.shiftKey(Date.parse('2026-11-13T16:00:00Z')), '2026-11-14#0');
+});
+
+test('articleKey：有數字用編號，沒有就用去空白的整個網址', () => {
+  assert.equal(lib.articleKey('https://news.tvbs.com.tw/local/4031880?from=x'), '4031880');
+  assert.equal(lib.articleKey(' https://example.com/abc '), 'https://example.com/abc');
+});
+
+test('nextRefId', () => {
+  assert.equal(lib.nextRefId([]), 'R1');
+  assert.equal(lib.nextRefId(['R1', 'R9', 'N5', 'R10']), 'R11');
+  assert.equal(lib.nextRefId(['N7']), 'R1');
 });

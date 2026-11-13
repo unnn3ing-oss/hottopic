@@ -3,11 +3,12 @@
  * 純函式與常數在 lib.js（Apps Script 檔案載入順序不保證，所以載入時不讀 lib.js 的全域值，只在函式內讀）。
  * 指令碼屬性：API_TOKEN（至少 32 字元）、SHEET_ID（試算表 ID）。 */
 
-var SHEET = { news: '新聞', edits: '改標', cats: '分類' };
+var SHEET = { news: '新聞', edits: '改標', cats: '分類', refs: '參考' };
 var HEADERS = {
   news: ['id', '分類', '原始標題', '原文連結', '小編文', '上次使用時間', '使用次數', '建立時間', '到期日'],
   edits: ['新聞id', '版本號', '標題', '上次使用時間', '使用次數', '建立時間'],
-  cats: ['分類']
+  cats: ['分類'],
+  refs: ['id', '分類', '原始標題', '原文連結', '改標', '參考誰', '建立時間']
 };
 var DEFAULT_CATS = ['社會', '生活', '健康', '政治', '國際', '娛樂'];
 var DATE_FORMAT = 'yyyy/MM/dd HH:mm';
@@ -92,6 +93,7 @@ function writeText_(sheet, row, col, values) {
   writeBlock_(sheet, row, col, values[0].map(function () { return FMT_TEXT; }), values);
 }
 function newsFormats_() { return [FMT_TEXT, FMT_TEXT, FMT_TEXT, FMT_TEXT, FMT_TEXT, DATE_FORMAT, FMT_NUM, DATE_FORMAT, FMT_TEXT]; }
+function refFormats_() { return [FMT_TEXT, FMT_TEXT, FMT_TEXT, FMT_TEXT, FMT_TEXT, FMT_TEXT, DATE_FORMAT]; }
 function editFormats_() { return [FMT_TEXT, FMT_NUM, FMT_TEXT, DATE_FORMAT, FMT_NUM, DATE_FORMAT]; }
 
 function ensureSheet_(ss, name, headers, defaults) {
@@ -160,12 +162,32 @@ function readAll_(db, light) {   // light：只讀新聞與分類（新增時只
     byId[id].titles.push({ ver: ver, t: t, last: toMs_(r[3]), count: toInt_(r[4]) });
   });
   items.forEach(function (it) { it.titles.sort(function (a, b) { return a.ver - b.ver; }); });
+  return { items: items, byId: byId, cats: readCats_(db), newsRow: newsRow, editRows: editRows, verRow: verRow };
+}
+
+function readCats_(db) {
   var cats = [];
   rows_(db.cats, 1).forEach(function (r) {
     var c = str_(r[0]).trim();
     if (c && cats.indexOf(c) === -1) cats.push(c);
   });
-  return { items: items, byId: byId, cats: cats, newsRow: newsRow, editRows: editRows, verRow: verRow };
+  return cats;
+}
+
+/* ---------- 參考分頁（只有參考動作才會建立／讀取；沒用參考模式就不會多出分頁） ---------- */
+function refsSheet_(db) { return ensureSheet_(db.ss, SHEET.refs, HEADERS.refs); }
+
+// 手動編輯造成的壞資料（空 id、重複 id、改標或參考誰空白）略過
+function readRefs_(db) {
+  var items = [], byId = {}, rowOf = {}, rawIds = [];   // rawIds：id 欄所有不空白的值（含被略過的列），算新編號時一併避開
+  rows_(refsSheet_(db), 7).forEach(function (r, i) {
+    var id = str_(r[0]).trim(), title = str_(r[4]), who = str_(r[5]).trim();
+    if (id) rawIds.push(id);
+    if (!id || byId[id] || !title.trim() || !who) return;
+    var item = { id: id, cat: str_(r[1]).trim(), orig: str_(r[2]), url: str_(r[3]), title: title, who: who, created: toMs_(r[6]) || 0 };
+    byId[id] = item; rowOf[id] = i + 2; items.push(item);
+  });
+  return { items: items, byId: byId, rowOf: rowOf, rawIds: rawIds };
 }
 
 function withLock_(fn) {
@@ -334,6 +356,80 @@ function markUsed_(args) {
   });
 }
 
+/* ---------- 參考模式動作 ---------- */
+function reqWho_(v) {
+  var who = normalizeLine(reqString_(v));
+  if (!who || who.length > LIMITS.who) failure_('bad_request');
+  return who;
+}
+function reqRefTitle_(v) {
+  var t = normalizeText(reqString_(v));
+  if (!t || t.length > LIMITS.title) failure_('bad_request');
+  return t;
+}
+function refDuplicate_(refs, key, who, exceptId) {
+  for (var i = 0; i < refs.items.length; i++) {
+    var r = refs.items[i];
+    if (r.id !== exceptId && r.who === who && articleKey(r.url) === key) return r;
+  }
+  return null;
+}
+
+function listRefs_() {
+  var db = db_();
+  return { items: readRefs_(db).items, cats: readCats_(db) };
+}
+
+function addRef_(args) {
+  var url = normalizeUrl(reqString_(args.url));
+  var orig = normalizeLine(reqString_(args.orig));
+  var cat = reqString_(args.cat).trim();
+  var title = reqRefTitle_(args.title), who = reqWho_(args.who);
+  if (!url || !orig || !cat || orig.length > LIMITS.orig) failure_('bad_request');
+  var db = db_();
+  return withLock_(function () {
+    if (readCats_(db).indexOf(cat) === -1) failure_('bad_request');
+    var refs = readRefs_(db);
+    var dup = refDuplicate_(refs, articleKey(url), who, null);
+    if (dup) failure_('duplicate', { existing: dup });
+    // 編號只增不減：取「試算表現有的所有 id」與「曾發出的最大編號」較大者再 +1，刪掉最新一筆後也不會重號
+    var props = PropertiesService.getScriptProperties();
+    var id = nextRefId(refs.rawIds.concat(['R' + (Number(props.getProperty('REF_SEQ')) || 0)]));
+    var now = new Date(), sheet = refsSheet_(db);
+    writeBlock_(sheet, sheet.getLastRow() + 1, 1, refFormats_(), [[id, cat, orig, url, title, who, now]]);
+    props.setProperty('REF_SEQ', id.slice(1));
+    return { item: { id: id, cat: cat, orig: orig, url: url, title: title, who: who, created: now.getTime() } };
+  });
+}
+
+function updateRef_(args) {
+  var id = reqString_(args.id), cat = reqString_(args.cat).trim();
+  var title = reqRefTitle_(args.title), who = reqWho_(args.who);
+  if (!cat) failure_('bad_request');
+  var db = db_();
+  return withLock_(function () {
+    var refs = readRefs_(db), item = refs.byId[id];
+    if (!item) failure_('not_found');
+    if (cat !== item.cat && readCats_(db).indexOf(cat) === -1) failure_('bad_request');
+    var dup = refDuplicate_(refs, articleKey(item.url), who, id);
+    if (dup) failure_('duplicate', { existing: dup });
+    writeText_(refsSheet_(db), refs.rowOf[id], 2, [[cat, item.orig, item.url, title, who]]);   // 第 2–6 欄一次寫入（原標與網址寫回原值）
+    item.cat = cat; item.title = title; item.who = who;
+    return { item: item };
+  });
+}
+
+function deleteRef_(args) {
+  var id = reqString_(args.id);
+  var db = db_();
+  return withLock_(function () {
+    var refs = readRefs_(db);
+    if (!refs.byId[id]) failure_('not_found');
+    refsSheet_(db).deleteRow(refs.rowOf[id]);
+    return { id: id };
+  });
+}
+
 // 回 {title, source, reason}；reason 只在失敗時有值：http_<狀態碼>、no_title、fetch_error（只給網頁顯示原因，不含例外內容）
 var FETCH_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
@@ -358,7 +454,8 @@ function fetchTitle_(args) {
 
 var ACTIONS = {
   ping: ping_, listItems: listItems_, addItem: addItem_, updateItem: updateItem_,
-  deleteItem: deleteItem_, markUsed: markUsed_, fetchTitle: fetchTitle_
+  deleteItem: deleteItem_, markUsed: markUsed_, fetchTitle: fetchTitle_,
+  listRefs: listRefs_, addRef: addRef_, updateRef: updateRef_, deleteRef: deleteRef_
 };
 
 /* ---------- 編輯器內手動執行：授權與初始化（不印出密碼與 ID 的值） ---------- */
