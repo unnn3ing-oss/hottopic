@@ -922,7 +922,7 @@
     fillCats(item ? item.cat : allCats()[0]);
     $('fNote').value = item ? item.note : '';
     $('usedBox').hidden = !!item && item.last != null;   // 新增，或編輯「從未使用」的新聞時才能填；已有紀錄的靠「標記已使用」累計
-    $('fUsed0').checked = true; $('fLast').value = ''; $('lastRow').hidden = true;
+    $('fUsed0').checked = true; $('fLastDate').value = ''; $('fLastTime').value = ''; $('lastRow').hidden = true;
     $('reTitle').hidden = !!item;
     $('fExp').value = item && item.expires ? item.expires : '';
     syncExpHint();
@@ -1031,22 +1031,35 @@
     }).then(function () { state.saving = false; $('save').disabled = false; $('save').textContent = '儲存'; });
   }
 
-  function localInputValue(ms) {   // 毫秒 → 'YYYY/MM/DD HH:mm'（瀏覽器所在時區，24 小時制）
+  function localDateValue(ms) {   // 毫秒 → 'YYYY/MM/DD'（瀏覽器所在時區）
     var d = new Date(ms);
-    return d.getFullYear() + '/' + pad(d.getMonth() + 1) + '/' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+    return d.getFullYear() + '/' + pad(d.getMonth() + 1) + '/' + pad(d.getDate());
+  }
+  function localTimeValue(ms) {   // 毫秒 → 'HH:mm'（瀏覽器所在時區，24 小時制）
+    var d = new Date(ms);
+    return pad(d.getHours()) + ':' + pad(d.getMinutes());
   }
   function parseLocalText(text) {   // 'YYYY/MM/DD HH:mm'（已通過 normalizeDateTimeText）→ 毫秒（瀏覽器所在時區）
     var m = /^(\d{4})\/(\d{2})\/(\d{2}) (\d{2}):(\d{2})$/.exec(text);
     return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]).getTime();
   }
-  function formatLastField() {   // 12 碼數字等合規輸入轉成標準格式；不合規的保持原樣讓使用者修改
-    var f = $('fLast'), n = normalizeDateTimeText(f.value);
+  // 合規輸入轉成標準格式；不合規的保持原樣讓使用者修改。日期欄貼上 12 碼（日期＋時間）時拆到兩欄
+  function formatLastDate() {
+    var f = $('fLastDate'), v = f.value.trim(), full = /^\d{12}$/.test(v) && normalizeDateTimeText(v);
+    if (full) { f.value = full.slice(0, 10); $('fLastTime').value = full.slice(11); return true; }
+    var n = normalizeDateText(v);
+    if (n) f.value = n;
+    return !!n;
+  }
+  function formatLastTime() {
+    var f = $('fLastTime'), n = normalizeTimeText(f.value);
     if (n) f.value = n;
   }
   function syncUsed() {
-    var used = $('fUsed1').checked;
+    var used = $('fUsed1').checked, now = Date.now();
     $('lastRow').hidden = !used;
-    if (used && !$('fLast').value) $('fLast').value = localInputValue(Date.now());
+    if (used && !$('fLastDate').value) $('fLastDate').value = localDateValue(now);
+    if (used && !$('fLastTime').value) $('fLastTime').value = localTimeValue(now);
   }
   function syncExpHint() {
     var v = $('fExp').value, hint = $('expHint');
@@ -1054,8 +1067,14 @@
     hint.hidden = !past;
     hint.textContent = past ? '這個日期是今天或更早，儲存後會直接放進「已到期」，不會出現在主列表。' : '';
   }
-  $('fLast').addEventListener('input', function () { if (/^\d{12}$/.test($('fLast').value.trim())) formatLastField(); });
-  $('fLast').addEventListener('blur', formatLastField);
+  $('fLastDate').addEventListener('input', function () {   // 滿 8 碼轉成日期並跳到時間欄（全選，直接打 4 碼覆蓋）；12 碼直接拆兩欄
+    var v = $('fLastDate').value.trim();
+    if (/^\d{12}$/.test(v)) { formatLastDate(); return; }
+    if (/^\d{8}$/.test(v) && formatLastDate()) { var t = $('fLastTime'); t.focus(); t.select(); }
+  });
+  $('fLastDate').addEventListener('blur', formatLastDate);
+  $('fLastTime').addEventListener('input', function () { if (/^\d{4}$/.test($('fLastTime').value.trim())) formatLastTime(); });
+  $('fLastTime').addEventListener('blur', formatLastTime);
   $('fUsed0').addEventListener('change', syncUsed);
   $('fUsed1').addEventListener('change', syncUsed);
   $('fExp').addEventListener('input', syncExpHint);
@@ -1204,11 +1223,13 @@
     var exp = $('fExp').value, last;
     if (exp && !isDateStr(exp)) { setErr('到期日格式不正確。'); return; }
     if ((!it || it.last == null) && $('fUsed1').checked) {
-      if (!$('fLast').value.trim()) { setErr('請填上次使用時間。'); return; }
-      var lastText = normalizeDateTimeText($('fLast').value);
-      if (!lastText) { setErr('上次使用時間格式不正確，請輸入 12 碼數字（例如 202612192105）或 YYYY/MM/DD HH:mm。'); return; }
-      $('fLast').value = lastText;
-      last = parseLocalText(lastText);
+      if (!$('fLastDate').value.trim() || !$('fLastTime').value.trim()) { setErr('請填上次使用的日期和時間。'); return; }
+      formatLastDate();
+      var dText = normalizeDateText($('fLastDate').value), tText = normalizeTimeText($('fLastTime').value);
+      if (!dText) { setErr('上次使用日期格式不正確，請輸入 8 碼數字（例如 20261219）或 YYYY/MM/DD。'); return; }
+      if (!tText) { setErr('上次使用時間格式不正確，請輸入 4 碼數字（例如 2105）或 HH:mm（24 小時制）。'); return; }
+      $('fLastDate').value = dText; $('fLastTime').value = tText;
+      last = parseLocalText(dText + ' ' + tText);
       if (last > Date.now() + 5 * 60000) { setErr('上次使用時間不能在未來。'); return; }
     }
     setErr('');

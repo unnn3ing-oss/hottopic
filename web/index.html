@@ -119,9 +119,14 @@
       <legend>使用狀態</legend>
       <label class="check"><input type="radio" name="used" id="fUsed0" value="0" checked> <span>未使用</span></label>
       <label class="check"><input type="radio" name="used" id="fUsed1" value="1"> <span>已使用過（例如同事已經發過）</span></label>
-      <label id="lastRow" hidden>上次使用時間（24 小時制，可直接輸入 202612192105）
-        <input type="text" id="fLast" inputmode="numeric" placeholder="YYYY/MM/DD HH:mm" autocomplete="off" maxlength="16">
-      </label>
+      <div id="lastRow" class="lastrow" hidden>
+        <label>上次使用日期（可直接輸入 20261219）
+          <input type="text" id="fLastDate" inputmode="numeric" placeholder="YYYY/MM/DD" autocomplete="off" maxlength="12">
+        </label>
+        <label>時間（24 小時制，可輸入 2105）
+          <input type="text" id="fLastTime" inputmode="numeric" placeholder="HH:mm" autocomplete="off" maxlength="5">
+        </label>
+      </div>
     </fieldset>
     <div class="exprow libonly">
       <label>到期日（選填，到期當天起移到「已到期」）

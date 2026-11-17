@@ -971,11 +971,14 @@ test('新增：選「已使用過」填上次使用時間與到期日 → 記為
   await page.fill('#fOrig', '同事發過的新聞');
   await page.check('#fUsed1');
   assert.equal(await page.locator('#lastRow').isVisible(), true);
-  assert.match(await page.inputValue('#fLast'), /^\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}$/);          // 預設帶入現在（24 小時制），免得每次都要填
+  assert.match(await page.inputValue('#fLastDate'), /^\d{4}\/\d{2}\/\d{2}$/);                    // 預設帶入現在（24 小時制），免得每次都要填
+  assert.match(await page.inputValue('#fLastTime'), /^\d{2}:\d{2}$/);
   const past = new Date(Date.now() - 2 * 864e5);
   const local = lib.dateStrTaipei(past.getTime()) + 'T09:30';
-  await page.fill('#fLast', local.slice(0, 4) + local.slice(5, 7) + local.slice(8, 10) + '0930');   // 直接輸入 12 碼
-  assert.equal(await page.inputValue('#fLast'), local.slice(0, 4) + '/' + local.slice(5, 7) + '/' + local.slice(8, 10) + ' 09:30');
+  await page.fill('#fLastDate', local.slice(0, 4) + local.slice(5, 7) + local.slice(8, 10));    // 日期直接輸入 8 碼
+  assert.equal(await page.inputValue('#fLastDate'), local.slice(0, 4) + '/' + local.slice(5, 7) + '/' + local.slice(8, 10));
+  await page.fill('#fLastTime', '0930');                                                       // 時間直接輸入 4 碼
+  assert.equal(await page.inputValue('#fLastTime'), '09:30');
   await page.fill('#fExp', dayStr(10));
   await page.click('#save');
   await page.waitForSelector('#dlg', { state: 'hidden' });
@@ -995,18 +998,27 @@ test('新增：選「已使用過」但時間留空或在未來 → 顯示錯誤
   await page.fill('#fUrl', 'https://news.tvbs.com.tw/local/6100003');
   await page.fill('#fOrig', '時間不合規');
   await page.check('#fUsed1');
-  await page.fill('#fLast', '');
+  await page.fill('#fLastDate', '');
   await page.click('#save');
-  assert.match(await page.textContent('#err'), /上次使用時間/);
-  await page.fill('#fLast', dayStr(3).replace(/-/g, '') + '0900');
+  assert.match(await page.textContent('#err'), /上次使用的日期和時間/);
+  await page.fill('#fLastDate', dayStr(1).replace(/-/g, ''));
+  await page.fill('#fLastTime', '');
+  await page.click('#save');
+  assert.match(await page.textContent('#err'), /上次使用的日期和時間/);
+  await page.fill('#fLastDate', dayStr(3).replace(/-/g, ''));
+  await page.fill('#fLastTime', '0900');
   await page.click('#save');
   assert.match(await page.textContent('#err'), /未來/);
-  await page.fill('#fLast', '202613011200');                                                 // 13 月不存在
+  await page.fill('#fLastDate', '20261301');                                                 // 13 月不存在
   await page.click('#save');
-  assert.match(await page.textContent('#err'), /格式/);
-  await page.fill('#fLast', '2026121921');                                                   // 位數不足
+  assert.match(await page.textContent('#err'), /日期格式/);
+  await page.fill('#fLastDate', '2026121');                                                  // 位數不足
   await page.click('#save');
-  assert.match(await page.textContent('#err'), /格式/);
+  assert.match(await page.textContent('#err'), /日期格式/);
+  await page.fill('#fLastDate', dayStr(-1).replace(/-/g, ''));
+  await page.fill('#fLastTime', '2460');                                                     // 時間不存在
+  await page.click('#save');
+  assert.match(await page.textContent('#err'), /時間格式/);
   assert.equal(api.st.calls.filter((c) => c.action === 'addItem').length, 0);
   await page.check('#fUsed0');                                                               // 改回「未使用」就不檢查時間
   await page.click('#save');
@@ -1069,23 +1081,32 @@ test('新增：開啟後游標停在網址欄；貼網址仍自動帶入標題�
   assert.equal(await page.inputValue('#fCat'), '健康');
 });
 
-test('上次使用時間：輸入 12 碼數字，離開欄位或滿 12 碼就轉成 YYYY/MM/DD HH:mm（24 小時制），並以台北時間送出', async (t) => {
+test('上次使用日期與時間分兩欄：日期滿 8 碼轉 YYYY/MM/DD 並跳到時間欄，時間滿 4 碼轉 HH:mm（24 小時制），以台北時間送出', async (t) => {
   const { page, api } = await open(t);
   await connectRows(page);
   await page.click('#addBtn');
   await page.fill('#fUrl', 'https://news.tvbs.com.tw/local/6200002');
   await page.fill('#fOrig', '24 小時制');
   await page.check('#fUsed1');
-  assert.equal(await page.getAttribute('#fLast', 'type'), 'text');
+  assert.equal(await page.getAttribute('#fLastDate', 'type'), 'text');
+  assert.equal(await page.getAttribute('#fLastTime', 'type'), 'text');
   const y = new Date(Date.now() - 864e5);
   const ds = lib.dateStrTaipei(y.getTime()), digits = ds.replace(/-/g, '');
-  await page.fill('#fLast', '');
-  await page.type('#fLast', digits + '2105');                                                // 逐字輸入，滿 12 碼自動轉
-  assert.equal(await page.inputValue('#fLast'), ds.replace(/-/g, '/') + ' 21:05');
-  await page.fill('#fLast', digits + '0000');
+  await page.fill('#fLastDate', '');
+  await page.type('#fLastDate', digits);                                                      // 逐字輸入，滿 8 碼自動轉並跳到時間欄
+  assert.equal(await page.inputValue('#fLastDate'), ds.replace(/-/g, '/'));
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'fLastTime');
+  await page.keyboard.type('2105');                                                           // 時間欄已全選，直接打 4 碼覆蓋
+  assert.equal(await page.inputValue('#fLastTime'), '21:05');
+  await page.fill('#fLastTime', '7:05');
   await page.locator('#fExp').focus();                                                        // 離開欄位也會轉
-  assert.equal(await page.inputValue('#fLast'), ds.replace(/-/g, '/') + ' 00:00');
-  await page.fill('#fLast', digits + '2105');
+  assert.equal(await page.inputValue('#fLastTime'), '07:05');
+  await page.fill('#fLastDate', ds.replace(/-/g, '-'));
+  await page.locator('#fExp').focus();
+  assert.equal(await page.inputValue('#fLastDate'), ds.replace(/-/g, '/'));
+  await page.fill('#fLastDate', digits + '2105');                                             // 日期欄貼上 12 碼：拆到兩欄
+  assert.equal(await page.inputValue('#fLastDate'), ds.replace(/-/g, '/'));
+  assert.equal(await page.inputValue('#fLastTime'), '21:05');
   await page.click('#save');
   await page.waitForSelector('#dlg', { state: 'hidden' });
   const args = api.st.calls.filter((c) => c.action === 'addItem')[0].args;
@@ -1113,7 +1134,8 @@ test('編輯：從未使用的新聞可補記「已使用過」，記為 1 次�
   await page.click('#card [data-act=edit]');
   await page.check('#fUsed1');
   const ds = lib.dateStrTaipei(Date.now() - 2 * 864e5);
-  await page.fill('#fLast', ds.replace(/-/g, '') + '0930');
+  await page.fill('#fLastDate', ds.replace(/-/g, ''));
+  await page.fill('#fLastTime', '0930');
   await page.click('#save');
   await page.waitForSelector('#dlg', { state: 'hidden' });
   const upd = api.st.calls.filter((c) => c.action === 'updateItem')[1].args;
@@ -1132,10 +1154,11 @@ test('編輯補記「已使用過」：時間格式不對或在未來 → 顯示
   await pick(page, '4031880');
   await page.click('#card [data-act=edit]');
   await page.check('#fUsed1');
-  await page.fill('#fLast', '99999999');
+  await page.fill('#fLastDate', '99999999');
   await page.click('#save');
   assert.match(await page.textContent('#err'), /格式/);
-  await page.fill('#fLast', dayStr(2).replace(/-/g, '') + '1000');
+  await page.fill('#fLastDate', dayStr(2).replace(/-/g, ''));
+  await page.fill('#fLastTime', '1000');
   await page.click('#save');
   assert.match(await page.textContent('#err'), /未來/);
   assert.equal(api.st.calls.filter((c) => c.action === 'updateItem').length, 0);

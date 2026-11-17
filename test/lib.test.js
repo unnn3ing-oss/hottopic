@@ -146,6 +146,30 @@ test('normalizeDateTimeText：12 碼數字或 YYYY/MM/DD HH:mm，24 小時制，
   assert.equal(n('202402290000'), '2024/02/29 00:00');   // 閏日
 });
 
+test('normalizeDateText：8 碼數字或 YYYY/MM/DD、YYYY-MM-DD → YYYY/MM/DD；不合規回 null', () => {
+  const n = lib.normalizeDateText;
+  assert.equal(n('20261219'), '2026/12/19');
+  assert.equal(n(' 20261219 '), '2026/12/19');
+  assert.equal(n('2026/1/9'), '2026/01/09');
+  assert.equal(n('2026-12-19'), '2026/12/19');
+  assert.equal(n('20240229'), '2024/02/29');
+  for (const bad of ['', '2026121', '202612190', '20261301', '20260230', '20250229', '2026/12/19 21:05', 'abcdefgh', null, undefined, 20261219]) {
+    assert.equal(n(bad), null, String(bad));
+  }
+});
+
+test('normalizeTimeText：4 碼數字或 H:mm、HH:mm（24 小時制）→ HH:mm；不合規回 null', () => {
+  const n = lib.normalizeTimeText;
+  assert.equal(n('2105'), '21:05');
+  assert.equal(n(' 0000 '), '00:00');
+  assert.equal(n('2359'), '23:59');
+  assert.equal(n('7:05'), '07:05');
+  assert.equal(n('21:05'), '21:05');
+  for (const bad of ['', '210', '21050', '2405', '2160', '21:5', '9pm', '21:05:30', 'abcd', null, undefined, 2105]) {
+    assert.equal(n(bad), null, String(bad));
+  }
+});
+
 /* ---------- 參考模式：班段、文章比對、編號 ---------- */
 test('LIMITS.who 為 30', () => { assert.equal(lib.LIMITS.who, 30); });
 
