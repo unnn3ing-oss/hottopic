@@ -2,7 +2,6 @@
  * 限制：不得使用 URL、URLSearchParams、DOMParser、window、document、TextEncoder；
  * 頂層只用 var 與 function；語法限 ES2019 以內。 */
 
-var COMMENT_BASE_URL = 'https://news.tvbs.com.tw/news/';
 var LIMITS = { url: 2000, orig: 500, title: 500, note: 5000, variants: 20, who: 30 };
 
 // 編號 = 網址路徑中最長的一串數字（同長取先出現者）；忽略主機、帳密、埠、query、hash
@@ -77,10 +76,10 @@ function normalizeLine(s) {
   return normalizeText(s).replace(/\s*\n\s*/g, ' ').replace(/^\s+|\s+$/g, '');
 }
 
-// 留言 = 小編文 + "\n" + 網址；小編文為空只輸出網址；N 開頭編號改用原文連結
+// 留言 = 小編文 + "\n" + 原文網址（與新增時附上的網址相同，不改寫成 /news/編號）；小編文為空只輸出網址
 function buildComment(item) {
   var note = normalizeText(item.note);
-  var link = /^N/.test(String(item.id)) ? String(item.url) : COMMENT_BASE_URL + item.id;
+  var link = String(item.url == null ? '' : item.url);
   return note ? note + '\n' + link : link;
 }
 
@@ -228,7 +227,7 @@ function guessCategory(url, cats) {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
-    COMMENT_BASE_URL: COMMENT_BASE_URL, LIMITS: LIMITS, extractId: extractId, isHttpUrl: isHttpUrl,
+    LIMITS: LIMITS, extractId: extractId, isHttpUrl: isHttpUrl,
     normalizeUrl: normalizeUrl, nextSerialId: nextSerialId, normalizeText: normalizeText,
     normalizeLine: normalizeLine, buildComment: buildComment, articleKey: articleKey, nextRefId: nextRefId, shiftKey: shiftKey,
     TAIPEI_OFFSET_MS: TAIPEI_OFFSET_MS, isDateStr: isDateStr, dateStrTaipei: dateStrTaipei, isExpired: isExpired, normalizeDateTimeText: normalizeDateTimeText,
