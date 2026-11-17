@@ -13,7 +13,6 @@ test('測試沙箱沒有 URL / TextEncoder / document（等同 Apps Script）', 
 });
 
 test('常數', () => {
-  assert.equal(lib.COMMENT_BASE_URL, 'https://news.tvbs.com.tw/news/');
   assert.deepEqual(JSON.parse(JSON.stringify(lib.LIMITS)), { url: 2000, orig: 500, title: 500, note: 5000, variants: 20, who: 30 });
 });
 
@@ -72,12 +71,12 @@ test('normalizeLine', () => {
 
 test('buildComment', () => {
   const note = '你多久保養一次車？\n留言分享你的習慣 👇';
-  const base = 'https://news.tvbs.com.tw/news/4032757';
+  const base = 'https://news.tvbs.com.tw/cars/4032757';   // 原文網址原樣，不改成 /news/編號
   assert.equal(lib.buildComment({ id: '4032757', url: 'https://news.tvbs.com.tw/cars/4032757', note }), note + '\n' + base);
   for (const empty of ['', ' \n ']) {
     assert.equal(lib.buildComment({ id: '4032757', url: 'https://news.tvbs.com.tw/cars/4032757', note: empty }), base);
   }
-  const noBlank = lib.buildComment({ id: '4032757', url: 'x', note: '留言\n\n' });
+  const noBlank = lib.buildComment({ id: '4032757', url: base, note: '留言\n\n' });
   assert.equal(noBlank.includes('\n\n'), false);
   assert.equal(noBlank, '留言\n' + base);
   assert.equal(lib.buildComment({ id: 'N3', url: 'https://example.com/a', note: 'hi' }), 'hi\nhttps://example.com/a');

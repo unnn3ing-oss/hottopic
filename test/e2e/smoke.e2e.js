@@ -213,12 +213,28 @@ test('先複製標題、再複製留言 → 自動記為已使用（記在複製
   assert.equal(await clip(page), '愛車多久該保養一次？\n行家：別等警示燈亮');
   assert.equal(markCalls(api).length, 0);                              // 只複製標題不算使用
   await card.locator('[data-act=cnote]').click();
-  assert.equal(await clip(page), '你多久保養一次車？\n留言分享你的習慣 👇\nhttps://news.tvbs.com.tw/news/4032757');
+  assert.equal(await clip(page), '你多久保養一次車？\n留言分享你的習慣 👇\nhttps://news.tvbs.com.tw/cars/4032757');   // 原文網址原樣
   await page.waitForFunction(() => document.getElementById('toast').textContent.includes('已複製留言，並記錄第 2 版使用'));
   assert.deepEqual(markCalls(api), [{ id: '4032757', ver: 2 }]);
   await page.locator('#card [data-act=cnote]').click();                // 已觸發過：再複製留言不會重複計次
   await page.waitForTimeout(300);
   assert.equal(markCalls(api).length, 1);
+});
+
+test('複製網址：複製原文網址原樣，不記為已使用，也不打斷「先標題、再留言」的自動標記', async (t) => {
+  const { page, api } = await open(t);
+  await connect(page);
+  await pick(page, '4032757');
+  const card = page.locator('#card .item');
+  await card.locator('[data-act=curl]').click();
+  assert.equal(await clip(page), 'https://news.tvbs.com.tw/cars/4032757');
+  await page.waitForFunction(() => document.getElementById('toast').textContent.includes('已複製網址'));
+  assert.equal(markCalls(api).length, 0);
+  await card.locator('[data-act=ctitle]').click();
+  await card.locator('[data-act=curl]').click();
+  await card.locator('[data-act=cnote]').click();
+  await page.waitForFunction(() => document.getElementById('toast').textContent.includes('記錄第 1 版使用'));
+  assert.deepEqual(markCalls(api), [{ id: '4032757', ver: 1 }]);
 });
 
 test('自動記為已使用：只複製留言、換文章、順序相反都不觸發；標題換版以最後複製的為準', async (t) => {

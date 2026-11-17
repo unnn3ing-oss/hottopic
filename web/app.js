@@ -250,6 +250,7 @@
       h('div', { class: 'acts' },
         h('button', { type: 'button', class: 'btn', 'data-act': 'ctitle', disabled: !n || state.busy.has(it.id) }, '複製標題'),
         h('button', { type: 'button', class: 'btn', 'data-act': 'cnote' }, '複製留言'),
+        h('button', { type: 'button', class: 'btn', 'data-act': 'curl', disabled: !it.url }, '複製網址'),
         h('button', { type: 'button', class: 'btn go', 'data-act': 'qpt', disabled: !it.url }, '直接產圖'),
         h('button', { type: 'button', class: 'btn primary' + (confirming ? ' confirm' : ''), 'data-act': 'mark', disabled: state.busy.has(it.id) }, markLabel(confirming, n, p)),
         h('button', { type: 'button', class: 'btn', 'data-act': 'edit' }, '編輯')));
@@ -698,7 +699,8 @@
         var c = state.copied;
         if (c && c.id === id) { state.copied = null; autoMark(c); }   // 先複製標題、再複製同一篇的留言 → 視為已使用
       });
-    } else if (act === 'qpt') sendToQpt(it, p);
+    } else if (act === 'curl') copyText(String(it.url), '已複製網址');   // 只複製網址：不算使用，也不影響「先標題、再留言」的自動標記
+    else if (act === 'qpt') sendToQpt(it, p);
     else if (act === 'edit') openDialog(it);
     else if (act === 'prev' || act === 'next' || act === 'dot') {
       var car = itemEl.querySelector('.car');
