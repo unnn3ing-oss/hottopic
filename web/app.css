@@ -84,7 +84,7 @@ button{cursor:pointer}
 .chip:hover{border-color:var(--chip-edge)}
 .chip small{font-family:var(--font-mono);margin-left:4px}
 .chip.exp{border-style:dashed;margin-left:6px}
-.chiplbl{align-self:center;font-size:12px;font-weight:700;color:var(--muted);margin-right:2px}
+.chiplbl{align-self:center;flex:none;white-space:nowrap;font-size:12px;font-weight:700;color:var(--muted);margin-right:2px}
 .chip[aria-pressed=true]{background:var(--chip-bg);color:var(--chip-fg);border-color:var(--chip-edge);font-weight:600}
 .sortrow{display:flex;justify-content:space-between;align-items:center;gap:8px 12px;flex-wrap:wrap;font-size:14px;color:var(--muted)}
 
@@ -126,6 +126,20 @@ button{cursor:pointer}
 .row .sub{grid-column:1/-1;font-size:13px;color:var(--muted);display:flex;gap:6px;flex-wrap:wrap;align-items:center}
 .cat{background:var(--accent-soft);color:var(--accent);border-radius:999px;padding:0 9px;font-weight:600;font-size:12px}
 .cat.who{background:var(--track);color:var(--ink)}
+.htag{color:var(--accent);font-size:12px;font-weight:600}
+.htags{display:flex;gap:4px 8px;flex-wrap:wrap;align-items:center}
+.htag.btnlike{border:0;background:var(--track);border-radius:999px;padding:2px 10px;font-size:13px}
+.htag.btnlike:hover{background:var(--accent-soft)}
+#tagChips .chip{font-size:12.5px}
+.tagfield{display:flex;flex-direction:column;gap:6px}
+.tagsel,.tagsug{display:flex;gap:6px;flex-wrap:wrap}
+.tagsel:empty,.tagsug:empty{display:none}
+.tagsel button{border:0;background:var(--chip-bg);color:var(--chip-fg);border-radius:999px;padding:3px 6px 3px 12px;font-size:13px;font-weight:600}
+.tagsel button span{margin-left:6px;opacity:.7}
+.tagsel button:hover span{opacity:1}
+.tagsug .chiplbl{font-size:12px}
+.tagsug button{border:1px dashed var(--border);background:transparent;color:var(--muted);border-radius:999px;padding:2px 10px;font-size:12.5px}
+.tagsug button:hover{border-color:var(--chip-edge);color:var(--accent)}
 .id{font-family:var(--font-mono);font-size:12px}
 .refmode .foot{display:none}
 .others{display:flex;flex-direction:column;gap:8px}

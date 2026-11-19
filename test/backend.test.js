@@ -85,7 +85,7 @@ test('測試台自檢：回應含 Date 會丟例外', () => {
 test('setup：建出三個分頁與標題列、預設分類、時區；重跑不覆蓋；日誌不含密碼值', () => {
   const s = setup();
   s.be.setup();
-  assert.deepEqual(s.gas.dump('新聞')[0], ['id', '分類', '原始標題', '原文連結', '小編文', '上次使用時間', '使用次數', '建立時間', '到期日']);
+  assert.deepEqual(s.gas.dump('新聞')[0], ['id', '分類', '原始標題', '原文連結', '小編文', '上次使用時間', '使用次數', '建立時間', '到期日', '標籤']);
   assert.deepEqual(s.gas.dump('改標')[0], ['新聞id', '版本號', '標題', '上次使用時間', '使用次數', '建立時間']);
   assert.deepEqual(s.gas.dump('分類').map((r) => r[0]), ['分類', '社會', '生活', '健康', '政治', '國際', '娛樂']);
   assert.equal(s.gas.calls.timezone, 'Asia/Taipei');
@@ -440,4 +440,58 @@ test('新增與更新帶到期日時，試算表呼叫次數仍在上限內', ()
   assert.ok(calls(() => add(s, { url: 'https://news.tvbs.com.tw/local/777', titles: ['a', 'b', 'c'], expires: '2026-12-01', last: s.gas.now - MIN })) <= 10, 'addItem');
   assert.ok(calls(() => s.call('updateItem', { id: '777', cat: '社會', note: 'x', expires: '2026-12-02' })) <= 11, 'updateItem');
   assert.ok(calls(() => s.call('updateItem', { id: '777', cat: '社會', note: 'x', expires: '2026-12-02', last: s.gas.now - MIN })) <= 12, 'updateItem 含 last');
+});
+
+/* ---------- 標籤 ---------- */
+test('addItem 帶標籤：整理後存成頓號字串，回傳與列表一致；沒帶就是空陣列', () => {
+  const s = setup();
+  const it = add(s, { tags: ['動物', ' 懶人包 ', '#動物', '天氣,颱風'] }).data.item;
+  assert.deepEqual(it.tags, ['動物', '懶人包', '天氣', '颱風']);
+  assert.equal(sheetCell(s, 2, 10), '動物、懶人包、天氣、颱風');
+  assert.deepEqual(s.list().items[0].tags, ['動物', '懶人包', '天氣', '颱風']);
+  assert.deepEqual(add(s, { url: 'https://x.com/a/2' }).data.item.tags, []);
+  assert.equal(sheetCell(s, 3, 10), '');
+});
+
+test('addItem／updateItem：標籤不合規一律 bad_request 且不寫入', () => {
+  const s = setup();
+  const bads = ['動物', [1], [null], [['a']], ['x'.repeat(21)], Array.from({ length: 11 }, (_, i) => 't' + i)];
+  for (const tags of bads) assert.equal(code(add(s, { tags })), 'bad_request', JSON.stringify(tags));
+  assert.equal(s.list().items.length, 0);
+  assert.equal(code(add(s, { tags: ['x'.repeat(20)].concat(Array.from({ length: 9 }, (_, i) => 't' + i)) })), 'ok');   // 剛好在上限
+  for (const tags of bads) assert.equal(code(s.call('updateItem', { id: '4032757', cat: '生活', note: '', tags })), 'bad_request', JSON.stringify(tags));
+  assert.equal(s.list().items[0].tags.length, 10);
+});
+
+test('updateItem 的標籤：設定、沒帶＝不動、空陣列＝清除；與到期日一起改也正確', () => {
+  const s = setup(); add(s, { tags: ['a'], expires: '2026-11-30' });
+  const upd = (extra) => s.call('updateItem', Object.assign({ id: '4032757', cat: '生活', note: 'n' }, extra)).data.item;
+  assert.deepEqual(upd({}).tags, ['a']);
+  assert.deepEqual(upd({ tags: ['b', 'c'] }).tags, ['b', 'c']);
+  assert.equal(sheetCell(s, 2, 10), 'b、c');
+  assert.equal(sheetCell(s, 2, 9), '2026-11-30');                       // 只改標籤不動到期日
+  const both = upd({ tags: ['d'], expires: '2027-01-01' });
+  assert.deepEqual([both.tags, both.expires], [['d'], '2027-01-01']);
+  assert.deepEqual([sheetCell(s, 2, 9), sheetCell(s, 2, 10)], ['2027-01-01', 'd']);
+  assert.equal(upd({ expires: null }).expires, null);
+  assert.equal(sheetCell(s, 2, 10), 'd');                               // 只改到期日不動標籤
+  assert.deepEqual(upd({ tags: [] }).tags, []);
+  assert.equal(sheetCell(s, 2, 10), '');
+  assert.deepEqual(s.list().items[0].tags, []);
+});
+
+test('舊試算表缺「標籤」欄：第一次讀取補上標題；手動輸入的標籤照樣讀得到', () => {
+  const s = setup(); s.call('ping');
+  s.gas.spreadsheet.getSheetByName('新聞').getRange(1, 10).setValues([['']]);
+  const t0 = new Date(Date.UTC(2026, 8, 1));
+  s.gas.seedRows('新聞', [['T1', '生活', 'o', 'https://a.b/1', '', '', 0, t0, '', '動物，天氣 動物'], ['T2', '生活', 'o', 'https://a.b/2', '', '', 0, t0]]);
+  assert.deepEqual(s.list().items.map((i) => i.tags), [['動物', '天氣'], []]);
+  assert.equal(sheetCell(s, 1, 10), '標籤');
+});
+
+test('新增與更新帶標籤時，試算表呼叫次數仍在上限內', () => {
+  const s = setup(); s.call('ping');
+  const calls = (fn) => { const b = s.gas.calls.sheetCalls; const r = fn(); assert.equal(r.ok, true); return s.gas.calls.sheetCalls - b; };
+  assert.ok(calls(() => add(s, { url: 'https://news.tvbs.com.tw/local/777', titles: ['a'], tags: ['x', 'y'] })) <= 10, 'addItem');
+  assert.ok(calls(() => s.call('updateItem', { id: '777', cat: '社會', note: 'x', tags: ['z'], expires: '2026-12-02' })) <= 11, 'updateItem');
 });

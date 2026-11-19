@@ -13,7 +13,7 @@ test('測試沙箱沒有 URL / TextEncoder / document（等同 Apps Script）', 
 });
 
 test('常數', () => {
-  assert.deepEqual(JSON.parse(JSON.stringify(lib.LIMITS)), { url: 2000, orig: 500, title: 500, note: 5000, variants: 20, who: 30 });
+  assert.deepEqual(JSON.parse(JSON.stringify(lib.LIMITS)), { url: 2000, orig: 500, title: 500, note: 5000, variants: 20, who: 30, tag: 20, tags: 10 });
 });
 
 test('extractId', () => {
@@ -195,4 +195,22 @@ test('nextRefId', () => {
   assert.equal(lib.nextRefId([]), 'R1');
   assert.equal(lib.nextRefId(['R1', 'R9', 'N5', 'R10']), 'R11');
   assert.equal(lib.nextRefId(['N7']), 'R1');
+});
+
+const J = (x) => JSON.parse(JSON.stringify(x));   // 沙箱陣列跨 realm，先轉回本地值再比
+test('parseTags：空白、逗號、頓號、分號、# 都當分隔；去重保留順序；接受字串或陣列', () => {
+  assert.deepEqual(J(lib.parseTags('動物, 懶人包、#天氣；動物  ＃颱風')), ['動物', '懶人包', '天氣', '颱風']);
+  assert.deepEqual(J(lib.parseTags(['a b', 'b', 'c'])), ['a', 'b', 'c']);
+  assert.deepEqual(J(lib.parseTags('')), []);
+  assert.deepEqual(J(lib.parseTags(null)), []);
+  assert.deepEqual(J(lib.parseTags('\n#\t、')), []);
+  assert.deepEqual(J(lib.parseTags('Cat cat')), ['Cat', 'cat']);   // 大小寫視為不同
+});
+
+test('tagsCell 與 parseTags 互為來回', () => {
+  const tags = ['動物', '懶人包', 'AI'];
+  assert.equal(lib.tagsCell(tags), '動物、懶人包、AI');
+  assert.deepEqual(J(lib.parseTags(lib.tagsCell(tags))), tags);
+  assert.equal(lib.tagsCell([]), '');
+  assert.equal(lib.tagsCell(undefined), '');
 });

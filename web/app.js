@@ -6,9 +6,9 @@
   var DAY = 864e5;
   var REDUCED = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   var state = {
-    items: [], cats: [], status: 'idle', error: '', cat: '全部', expired: false, q: '', sort: 'oldest', size: loadSize(), page: 1,
+    items: [], cats: [], status: 'idle', error: '', cat: '全部', tag: '全部', expired: false, q: '', sort: 'oldest', size: loadSize(), page: 1,
     pos: {}, pendingMark: null, markTimer: null, busy: new Set(),
-    editing: null, draft: [], removed: [], saving: false, delTimer: null,
+    editing: null, draft: [], removed: [], dTags: [], saving: false, delTimer: null,
     fetchSeq: 0, autoFetched: false, origTouched: false, catTouched: false,
     sel: null, copied: null,
     dlgRef: false, shiftWho: '', mode: loadMode(), refs: [], refStatus: 'idle', refError: '', who: '全部', refCat: '全部', refSort: 'created'
@@ -162,13 +162,21 @@
     return out;
   }
 
+  function tagsOf(it) { return it.tags || []; }   // 舊後端沒有 tags 欄位
+  function allTags() {   // 不重複的標籤：用得多的在前，同數依 Unicode 排序
+    var n = {};
+    state.items.forEach(function (it) { tagsOf(it).forEach(function (t) { n[t] = (n[t] || 0) + 1; }); });
+    return Object.keys(n).sort(function (a, b) { return n[b] - n[a] || (a < b ? -1 : a > b ? 1 : 0); });
+  }
+
   function visibleItems() {
     var q = state.q.trim().toLowerCase(), now = Date.now();
     var r = state.items.filter(function (it) {
       if (isExpired(it.expires, now) !== state.expired) return false;   // 主列表只有未到期的；「已到期」只有到期的（搜尋也一樣）
       if (!state.expired && state.cat !== '全部' && it.cat !== state.cat) return false;
+      if (state.tag !== '全部' && tagsOf(it).indexOf(state.tag) === -1) return false;   // 標籤篩選在「已到期」也有效
       if (!q) return true;
-      var all = it.id + ' ' + it.orig + ' ' + it.titles.map(function (v) { return v.t; }).join(' ');
+      var all = it.id + ' ' + it.orig + ' ' + it.titles.map(function (v) { return v.t; }).join(' ') + ' ' + tagsOf(it).map(function (t) { return '#' + t; }).join(' ');
       return all.toLowerCase().indexOf(q) > -1;
     });
     var s = state.sort;
@@ -195,6 +203,26 @@
     chips.push(h('button', { type: 'button', class: 'chip exp', 'data-expired': '1', 'aria-pressed': String(state.expired) },
       '已到期', h('small', { text: String(state.items.length - live.length) })));
     box.replaceChildren.apply(box, chips);
+    renderTagChips();
+  }
+
+  // 標籤篩選：可與分類同時使用；數字＝目前分類（或「已到期」）裡掛這個標籤的則數
+  function renderTagChips() {
+    var box = $('tagChips'), tags = allTags();
+    if (state.tag !== '全部' && tags.indexOf(state.tag) === -1) state.tag = '全部';
+    box.hidden = !tags.length;
+    if (!tags.length) { box.replaceChildren(); return; }
+    var now = Date.now();
+    var base = state.items.filter(function (it) {
+      if (isExpired(it.expires, now) !== state.expired) return false;
+      return state.expired || state.cat === '全部' || it.cat === state.cat;
+    });
+    function chip(name, n) {
+      return h('button', { type: 'button', class: 'chip', 'data-tag': name, 'aria-pressed': String(state.tag === name) },
+        name === '全部' ? name : '#' + name, h('small', { text: String(n) }));
+    }
+    box.replaceChildren.apply(box, [h('span', { class: 'chiplbl', text: '標籤' }), chip('全部', base.length)]
+      .concat(tags.map(function (t) { return chip(t, base.filter(function (it) { return tagsOf(it).indexOf(t) !== -1; }).length); })));
   }
 
   function markLabel(confirming, n, p) { return confirming ? '再按一次確認' + (n > 1 ? '（第 ' + (p + 1) + ' 版）' : '') : '標記已使用'; }
@@ -206,8 +234,9 @@
     return h('div', { class: 'row', role: 'option', tabindex: '0', 'data-id': it.id, 'aria-selected': String(it.id === state.sel) },
       h('h3', { text: rowTitle(it) }),
       it.last == null ? h('span', { class: 'badge fresh', text: '從未使用' }) : h('span', { class: 'badge', text: ago(it.last) }),
-      h('div', { class: 'sub' }, h('span', { class: 'cat', text: it.cat }), h('span', { class: 'id', text: it.id }),
-        n > 1 ? h('span', { class: 'vcount', text: n + ' 版' }) : null));
+      h.apply(null, ['div', { class: 'sub' }, h('span', { class: 'cat', text: it.cat }), h('span', { class: 'id', text: it.id }),
+        n > 1 ? h('span', { class: 'vcount', text: n + ' 版' }) : null]
+        .concat(tagsOf(it).map(function (t) { return h('span', { class: 'htag', text: '#' + t }); }))));
   }
 
   function buildCard(it) {
@@ -243,6 +272,9 @@
         h('button', { type: 'button', class: 'back', 'data-act': 'back', 'aria-label': '返回列表' }, '‹'),
         h('span', { class: 'ctitle' }, '新聞', h('small', { text: '#' + it.id })),
         h('span', { class: 'cat', text: it.cat }), used, expiry),
+      tagsOf(it).length ? h.apply(null, ['div', { class: 'htags', 'aria-label': '標籤' }].concat(tagsOf(it).map(function (t) {
+        return h('button', { type: 'button', class: 'htag btnlike', 'data-act': 'tag', 'data-tag': t, title: '只看 #' + t }, '#' + t);
+      }))) : null,
       h('div', { class: 'orig', title: it.orig }, h('span', { class: 'tag', text: '原始' }), h('span', { class: 'ot', text: it.orig })),
       h('div', { class: 'field' }, h('span', { class: 'lbl', text: '改標' }), titles, dots),
       h('div', { class: 'field' }, h('span', { class: 'lbl', text: '小編文' }),
@@ -297,14 +329,14 @@
 
   function render() {
     $('whoChips').hidden = state.mode !== 'ref';
-    if (state.mode === 'ref') { renderRef(); return; }
+    if (state.mode === 'ref') { $('tagChips').hidden = true; renderRef(); return; }
     renderChips();
     if (state.status === 'loading') { showPlain(stateBox('載入中…')); return; }
     if (state.status === 'error') { showPlain(stateBox(state.error || '載入失敗。', '重試', 'retry')); return; }
     if (state.status === 'idle') { showPlain(stateBox('尚未連線。請先到「設定」輸入 Worker 網址與密碼。', '開啟設定', 'settings')); return; }
     if (!state.items.length) { showPlain(stateBox('還沒有任何新聞。', '＋ 新增新聞', 'add-first')); return; }
     var r = visibleItems();
-    if (!r.length) { showNone(state.expired && !state.q.trim() ? '沒有已到期的文章。' : '沒有符合的新聞。調整搜尋或分類，或按「＋ 新增新聞」。'); return; }
+    if (!r.length) { showNone(state.expired && !state.q.trim() ? '沒有已到期的文章。' : '沒有符合的新聞。調整搜尋、分類或標籤，或按「＋ 新增新聞」。'); return; }
     showPage(r, buildRow);
   }
 
@@ -702,6 +734,7 @@
     } else if (act === 'curl') copyText(String(it.url), '已複製網址');   // 只複製網址：不算使用，也不影響「先標題、再留言」的自動標記
     else if (act === 'qpt') sendToQpt(it, p);
     else if (act === 'edit') openDialog(it);
+    else if (act === 'tag') { state.tag = b.getAttribute('data-tag'); state.sel = id; render(); toast('只看 #' + state.tag); }
     else if (act === 'prev' || act === 'next' || act === 'dot') {
       var car = itemEl.querySelector('.car');
       if (car) goTo(car, act === 'dot' ? +b.getAttribute('data-i') : p + (act === 'next' ? 1 : -1));
@@ -786,6 +819,11 @@
     else { state.expired = false; state.cat = b.getAttribute('data-cat'); }
     goView();
   });
+  $('tagChips').addEventListener('click', function (e) {
+    var b = e.target.closest('.chip');
+    if (!b) return;
+    state.tag = b.getAttribute('data-tag'); goView();
+  });
   $('whoChips').addEventListener('click', function (e) {
     var b = e.target.closest('.chip');
     if (!b) return;
@@ -866,6 +904,59 @@
     if (!state.editing) checkUrl();
   }
 
+  /* ---------- 新增／編輯視窗：標籤 ---------- */
+  function renderDlgTags() {
+    var list = $('fTagList'), sug = $('fTagSug'), d = state.dTags;
+    list.replaceChildren.apply(list, d.map(function (t) {
+      return h('button', { type: 'button', 'data-rm': t, 'aria-label': '移除標籤 ' + t }, '#' + t, h('span', { 'aria-hidden': 'true', text: '×' }));
+    }));
+    var q = $('fTagIn').value.replace(/^[#＃\s]+/, '').trim().toLowerCase();
+    var pool = allTags().filter(function (t) { return d.indexOf(t) === -1 && (!q || t.toLowerCase().indexOf(q) !== -1); }).slice(0, 12);
+    sug.replaceChildren.apply(sug, pool.length ? [h('span', { class: 'chiplbl', text: '用過的' })].concat(pool.map(function (t) {
+      return h('button', { type: 'button', 'data-add': t }, '＋#' + t);
+    })) : []);
+  }
+  function addDlgTags(text) {   // 回傳錯誤訊息（沒有就是空字串）
+    var add = parseTags(text).filter(function (t) { return state.dTags.indexOf(t) === -1; });
+    var long = add.filter(function (t) { return t.length > LIMITS.tag; })[0];
+    if (long) return '標籤「' + long.slice(0, 10) + '…」太長，每個最多 ' + LIMITS.tag + ' 字。';
+    if (state.dTags.length + add.length > LIMITS.tags) return '標籤最多 ' + LIMITS.tags + ' 個。';
+    state.dTags = state.dTags.concat(add);
+    return '';
+  }
+  function tagErr(msg) { if (msg || state.tagErrShown) setErr(msg); state.tagErrShown = !!msg; }   // 只清掉標籤自己的錯誤，不蓋掉其他提示
+  function commitTagInput() {   // 把輸入框裡還沒加入的字變成標籤；失敗時保留輸入內容
+    var inp = $('fTagIn');
+    if (!inp.value.trim()) return '';
+    var msg = addDlgTags(inp.value);
+    if (!msg) inp.value = '';
+    renderDlgTags();
+    return msg;
+  }
+  $('fTagIn').addEventListener('keydown', function (e) {
+    if (e.isComposing || e.keyCode === 229) return;   // 注音選字中的 Enter 不算
+    if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); tagErr(commitTagInput()); }
+    else if (e.key === 'Backspace' && !e.target.value && state.dTags.length) { state.dTags = state.dTags.slice(0, -1); renderDlgTags(); }
+  });
+  $('fTagIn').addEventListener('input', function (e) {
+    if (e.isComposing) { renderDlgTags(); return; }   // 選字結束後還會再觸發一次 input
+    if (/[\s,，、;；]/.test(e.target.value.replace(/^\s+/, ''))) {   // 打了分隔符號：前面的字直接變成標籤，最後一段留著繼續打
+      var parts = e.target.value.split(/[\s,，、;；]+/), rest = parts.pop();
+      var msg = addDlgTags(parts.join(' '));
+      if (!msg) e.target.value = rest;
+      tagErr(msg);
+    }
+    renderDlgTags();
+  });
+  $('tagField').addEventListener('click', function (e) {
+    var rm = e.target.closest('[data-rm]'), add = e.target.closest('[data-add]');
+    if (rm) { var t = rm.getAttribute('data-rm'); state.dTags = state.dTags.filter(function (x) { return x !== t; }); }
+    else if (add) tagErr(addDlgTags(add.getAttribute('data-add')));
+    else return;
+    renderDlgTags();
+    $('fTagIn').focus();
+  });
+
   function renderVars() {
     var box = $('vars'), d = state.draft;
     box.replaceChildren.apply(box, d.map(function (v, i) {
@@ -923,6 +1014,10 @@
     $('fOrig').value = item ? item.orig : ''; $('fOrig').readOnly = !!item;
     fillCats(item ? item.cat : allCats()[0]);
     $('fNote').value = item ? item.note : '';
+    state.dTags = item ? tagsOf(item).slice() : [];
+    state.tagErrShown = false;
+    $('fTagIn').value = '';
+    renderDlgTags();
     $('usedBox').hidden = !!item && item.last != null;   // 新增，或編輯「從未使用」的新聞時才能填；已有紀錄的靠「標記已使用」累計
     $('fUsed0').checked = true; $('fLastDate').value = ''; $('fLastTime').value = ''; $('lastRow').hidden = true;
     $('reTitle').hidden = !!item;
@@ -1222,6 +1317,10 @@
     if (!rawUrl.trim() || !orig) { setErr('網址和原始標題必填。'); return; }
     if (!url) { setErr('網址格式不正確（需為 http 或 https 的完整網址）。'); return; }
     if (!cat) { setErr('請選擇分類。'); return; }
+    var tagMsg = commitTagInput();
+    tagErr(tagMsg);
+    if (tagMsg) { $('fTagIn').focus(); return; }
+    var tags = state.dTags.slice();
     var exp = $('fExp').value, last;
     if (exp && !isDateStr(exp)) { setErr('到期日格式不正確。'); return; }
     if ((!it || it.last == null) && $('fUsed1').checked) {
@@ -1243,6 +1342,7 @@
         titles: state.draft.map(function (v) { return normalizeText(v.t); }).filter(Boolean) };
       if (last !== undefined) req.last = last;
       if (exp) req.expires = exp;
+      if (tags.length) req.tags = tags;
     } else {
       action = 'updateItem';
       var edit = [], add = [], remove = state.removed.slice();
@@ -1255,6 +1355,7 @@
       req = { id: it.id, cat: cat, note: note, edit: edit, add: add, remove: remove };
       if (last !== undefined) req.last = last;
       if ((it.expires || null) !== (exp || null)) req.expires = exp || null;   // 沒改就不送，少寫一次試算表
+      if (tagsOf(it).join('\n') !== tags.join('\n')) req.tags = tags;
     }
     state.saving = true; $('save').disabled = true; $('save').textContent = '儲存中…';
     mutate(action, req).then(function (data) {
@@ -1265,6 +1366,7 @@
       // 舊版後端會直接忽略新欄位、回傳也沒有 expires；有填這些欄位卻沒收到就明確提醒，不能默默掉資料
       var wantsNew = req.last !== undefined || (req.expires !== undefined && req.expires !== null);
       if (wantsNew && !('expires' in data.item)) toast('已儲存 #' + data.item.id + '，但後端還沒更新，到期日／使用紀錄沒有存到。請在 Apps Script 重新部署（見 README）。', 8000);
+      else if (req.tags !== undefined && !('tags' in data.item)) toast('已儲存 #' + data.item.id + '，但後端還沒更新，標籤沒有存到。請在 Apps Script 重新部署（見 README）。', 8000);
       else toast('已儲存 #' + data.item.id);
     }).catch(function (err) {
       if (err.code === 'duplicate' && err.existing) { replaceItem(err.existing); render(); state.saving = false; openDialog(err.existing); return; }
