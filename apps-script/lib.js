@@ -178,7 +178,7 @@ function decodeEntities_(s) {
 // 壓空白、去控制字元與雙向控制字元，並裁掉「分隔符號＋已知網站名稱」的結尾
 function cleanTitle(s, suffixes) {
   var t = String(s == null ? '' : s).replace(/\s+/g, ' ')
-    .replace(/[\u0000-\u001F\u007F-\u009F​-‏‪-‮⁦-⁩﻿]/g, '')
+    .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, '')
     .replace(/^ +| +$/g, '');
   var list = suffixes || SITE_SUFFIXES;
   for (var i = 0; i < list.length; i++) {
