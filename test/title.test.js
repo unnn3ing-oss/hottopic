@@ -35,7 +35,7 @@ test('實體只還原一次，非法實體不丟例外', () => {
 
 test('空白與控制字元清理', () => {
   assert.equal(lib.titleFromHtml(og('a\n  b\t c')).title, 'a b c');
-  assert.equal(lib.titleFromHtml(og('a‮b‏c\u0007d')).title, 'abcd');
+  assert.equal(lib.titleFromHtml(og('a\u202Eb\u200Fc\u0007d')).title, 'abcd');
 });
 
 test('範圍：</head> 之後、註解、script、style 內的假標籤被忽略', () => {
