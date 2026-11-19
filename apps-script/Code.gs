@@ -5,7 +5,7 @@
 
 var SHEET = { news: '新聞', edits: '改標', cats: '分類', refs: '參考' };
 var HEADERS = {
-  news: ['id', '分類', '原始標題', '原文連結', '小編文', '上次使用時間', '使用次數', '建立時間', '到期日'],
+  news: ['id', '分類', '原始標題', '原文連結', '小編文', '上次使用時間', '使用次數', '建立時間', '到期日', '標籤'],
   edits: ['新聞id', '版本號', '標題', '上次使用時間', '使用次數', '建立時間'],
   cats: ['分類'],
   refs: ['id', '分類', '原始標題', '原文連結', '改標', '參考誰', '建立時間']
@@ -92,7 +92,7 @@ function writeBlock_(sheet, row, col, formats, rows) {
 function writeText_(sheet, row, col, values) {
   writeBlock_(sheet, row, col, values[0].map(function () { return FMT_TEXT; }), values);
 }
-function newsFormats_() { return [FMT_TEXT, FMT_TEXT, FMT_TEXT, FMT_TEXT, FMT_TEXT, DATE_FORMAT, FMT_NUM, DATE_FORMAT, FMT_TEXT]; }
+function newsFormats_() { return [FMT_TEXT, FMT_TEXT, FMT_TEXT, FMT_TEXT, FMT_TEXT, DATE_FORMAT, FMT_NUM, DATE_FORMAT, FMT_TEXT, FMT_TEXT]; }
 function refFormats_() { return [FMT_TEXT, FMT_TEXT, FMT_TEXT, FMT_TEXT, FMT_TEXT, FMT_TEXT, DATE_FORMAT]; }
 function editFormats_() { return [FMT_TEXT, FMT_NUM, FMT_TEXT, DATE_FORMAT, FMT_NUM, DATE_FORMAT]; }
 
@@ -141,13 +141,15 @@ function expiresOf_(v) {
 // 讀整份資料；手動編輯造成的壞資料（空白列、孤兒改標、非數字版本號…）略過而不是整個失敗
 function readAll_(db, light) {   // light：只讀新聞與分類（新增時只需要編號與分類，不讀改標）
   var items = [], byId = {}, newsRow = {}, editRows = {}, verRow = {};
-  var newsRows = rows_(db.news, 9);
-  if (str_(newsRows.header[8]).trim() !== HEADERS.news[8]) writeText_(db.news, 1, 9, [[HEADERS.news[8]]]);   // 舊試算表補上「到期日」標題
+  var newsRows = rows_(db.news, 10);
+  [8, 9].forEach(function (c) {   // 舊試算表補上「到期日」「標籤」標題
+    if (str_(newsRows.header[c]).trim() !== HEADERS.news[c]) writeText_(db.news, 1, c + 1, [[HEADERS.news[c]]]);
+  });
   newsRows.forEach(function (r, i) {
     var id = str_(r[0]).trim();
     if (!id || byId[id]) return;
     var item = { id: id, cat: str_(r[1]).trim(), orig: str_(r[2]), url: str_(r[3]), note: str_(r[4]),
-      last: toMs_(r[5]), count: toInt_(r[6]), created: toMs_(r[7]) || 0, expires: expiresOf_(r[8]), titles: [] };
+      last: toMs_(r[5]), count: toInt_(r[6]), created: toMs_(r[7]) || 0, expires: expiresOf_(r[8]), tags: parseTags(str_(r[9])), titles: [] };
     byId[id] = item; newsRow[id] = i + 2; items.push(item);
   });
   (light ? [] : rows_(db.edits, 6)).forEach(function (r, i) {
@@ -231,6 +233,15 @@ function optExpires_(v) {
   return v;
 }
 // 新增時就已使用過的時間（毫秒）：不得早於 2000 年，也不得晚於現在超過 5 分鐘（容許本機時鐘誤差）
+// 標籤：沒帶回 null（＝不動）；有帶必須是字串陣列，整理後每個不超過 LIMITS.tag 字、最多 LIMITS.tags 個
+function optTags_(v) {
+  if (v === undefined) return null;
+  if (!Array.isArray(v)) failure_('bad_request');
+  v.forEach(reqString_);
+  var tags = parseTags(v);
+  if (tags.length > LIMITS.tags || tags.some(function (t) { return t.length > LIMITS.tag; })) failure_('bad_request');
+  return tags;
+}
 function optLast_(v, nowMs) {
   if (v === undefined || v === null) return null;
   if (typeof v !== 'number' || !isFinite(v) || Math.floor(v) !== v || v < MIN_LAST_MS || v > nowMs + CLOCK_SKEW_MS) failure_('bad_request');
@@ -255,6 +266,7 @@ function addItem_(args) {
   var note = optNote_(args.note);
   var titles = textList_(args.titles);
   var expires = optExpires_(args.expires), last = optLast_(args.last, new Date().getTime());
+  var tags = optTags_(args.tags) || [];
   if (!url || !orig || !cat || orig.length > LIMITS.orig || titles.length > LIMITS.variants) failure_('bad_request');
   var db = db_();
   return withLock_(function () {
@@ -263,10 +275,10 @@ function addItem_(args) {
     var id = extractId(url) || nextSerialId(all.items.map(function (i) { return i.id; }));
     if (all.byId[id]) failure_('duplicate', { existing: readAll_(db).byId[id] });
     var now = new Date();
-    writeBlock_(db.news, db.news.getLastRow() + 1, 1, newsFormats_(), [[id, cat, orig, url, note, last === null ? '' : new Date(last), last === null ? 0 : 1, now, expires || '']]);
+    writeBlock_(db.news, db.news.getLastRow() + 1, 1, newsFormats_(), [[id, cat, orig, url, note, last === null ? '' : new Date(last), last === null ? 0 : 1, now, expires || '', tagsCell(tags)]]);
     var vers = titles.map(function (t, i) { return { ver: i + 1, t: t }; });
     appendEditRows_(db, id, vers, now);
-    return { item: { id: id, cat: cat, orig: orig, url: url, note: note, last: last, count: last === null ? 0 : 1, created: now.getTime(), expires: expires,
+    return { item: { id: id, cat: cat, orig: orig, url: url, note: note, last: last, count: last === null ? 0 : 1, created: now.getTime(), expires: expires, tags: tags,
       titles: vers.map(function (v) { return { ver: v.ver, t: v.t, last: null, count: 0 }; }) } };   // 直接組出結果，不再重讀整份資料
   });
 }
@@ -289,6 +301,7 @@ function updateItem_(args) {
   });
   var add = textList_(args.add);
   var setExpires = args.expires !== undefined, expires = optExpires_(args.expires);
+  var tags = optTags_(args.tags);   // null＝沒帶，不動
   var last = optLast_(args.last, new Date().getTime());   // 只對「從未使用」的新聞生效：補記為已使用 1 次
   var db = db_();
   return withLock_(function () {
@@ -301,7 +314,11 @@ function updateItem_(args) {
     var maxVer = item.titles.reduce(function (m, v) { return Math.max(m, v.ver); }, 0);
     var row = all.newsRow[id];
     writeText_(db.news, row, 2, [[cat, item.orig, item.url, note]]);   // 第 2–5 欄一次寫入（原始標題與網址原值寫回）
-    if (setExpires) { writeText_(db.news, row, 9, [[expires || '']]); item.expires = expires; }
+    if (setExpires && tags) writeText_(db.news, row, 9, [[expires || '', tagsCell(tags)]]);   // 第 9–10 欄相鄰，兩個都改就一次寫入
+    else if (setExpires) writeText_(db.news, row, 9, [[expires || '']]);
+    else if (tags) writeText_(db.news, row, 10, [[tagsCell(tags)]]);
+    if (setExpires) item.expires = expires;
+    if (tags) item.tags = tags;
     if (last !== null && item.last === null) {   // 已有使用紀錄就忽略（之後用「標記已使用」累計）
       writeBlock_(db.news, row, 6, [DATE_FORMAT, FMT_NUM], [[new Date(last), 1]]);
       item.last = last; item.count = 1;

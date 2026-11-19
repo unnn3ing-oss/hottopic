@@ -1803,3 +1803,128 @@ test('班段：hottopic.refWho 讀寫都丟例外 → 不預填、儲存照常�
   await openAddRef(page);
   assert.equal(await page.inputValue('#fWho'), '');
 });
+
+/* ---------- 標籤 ---------- */
+const tagCalls = (api, action) => api.st.calls.filter((c) => c.action === action).map((c) => c.args);
+function tagSample(api) {
+  api.st.items.find((i) => i.id === '4031880').tags = ['夜市', '連假'];
+  api.st.items.find((i) => i.id === '4028301').tags = ['連假'];
+  api.st.items.find((i) => i.id === '4032757').tags = ['汽車'];
+}
+
+test('標籤：沒有任何標籤時不顯示標籤列；有標籤時可篩選、與分類併用、顯示在列表與卡片', async (t) => {
+  const plain = await open(t);
+  await connectRows(plain.page);
+  assert.equal(await plain.page.isHidden('#tagChips'), true);
+
+  const { page, api } = await open(t);
+  tagSample(api);
+  await connectRows(page);
+  assert.equal(await page.isVisible('#tagChips'), true);
+  const chipTexts = await page.$$eval('#tagChips .chip', (els) => els.map((e) => e.textContent));
+  assert.deepEqual(chipTexts, ['全部3', '#連假2', '#夜市1', '#汽車1']);              // 用得多的在前
+  assert.deepEqual(await page.$$eval('.row[data-id="4031880"] .htag', (els) => els.map((e) => e.textContent)), ['#夜市', '#連假']);
+  await page.click('#tagChips .chip[data-tag="連假"]');
+  assert.deepEqual((await rowIds(page)).sort(), ['4028301', '4031880']);
+  await page.click('.chip[data-cat="生活"]');                                       // 生活分類裡沒有掛連假的
+  assert.match(await page.locator('#list').textContent(), /沒有符合的新聞/);
+  assert.equal(await page.locator('#tagChips .chip[data-tag="連假"] small').textContent(), '0');
+  await page.click('#tagChips .chip[data-tag="全部"]');
+  assert.deepEqual(await rowIds(page), ['4032757']);
+  await page.click('.chip[data-cat="全部"]');
+  await pick(page, '4031880');
+  assert.deepEqual(await page.$$eval('#card .htag', (els) => els.map((e) => e.textContent)), ['#夜市', '#連假']);
+  await page.click('#card .htag[data-tag="夜市"]');                                  // 點卡片上的標籤 → 只看這個標籤
+  assert.deepEqual(await rowIds(page), ['4031880']);
+  assert.equal(await page.getAttribute('#tagChips .chip[data-tag="夜市"]', 'aria-pressed'), 'true');
+  await page.click('#tagChips .chip[data-tag="全部"]');
+  await page.fill('#q', '汽車');                                                    // 搜尋也比對標籤
+  assert.deepEqual(await rowIds(page), ['4032757']);
+  await page.fill('#q', '');
+  await page.click('#modeRef');
+  assert.equal(await page.isHidden('#tagChips'), true);                             // 參考模式不顯示標籤列
+});
+
+test('標籤：新增時用 Enter／空白／逗號加入、點「用過的」加入、× 移除，儲存送出整理後的標籤', async (t) => {
+  const { page, api } = await open(t);
+  tagSample(api);
+  await connectRows(page);
+  await page.click('#addBtn');
+  await page.fill('#fUrl', 'https://news.tvbs.com.tw/local/6200001');
+  await page.fill('#fOrig', '有標籤的新聞');
+  assert.equal(await order(page, ['fNote', 'fTagIn', 'usedBox']), true);
+  await page.click('#fTagIn');
+  await page.keyboard.type('#動物 ');
+  assert.deepEqual(await page.$$eval('#fTagList button', (els) => els.map((e) => e.getAttribute('data-rm'))), ['動物']);
+  assert.equal(await page.inputValue('#fTagIn'), '');
+  await page.keyboard.type('懶人包,天氣');
+  await page.keyboard.press('Enter');
+  assert.equal(await page.isVisible('#dlg'), true);                                 // Enter 不會送出表單
+  assert.deepEqual(await page.$$eval('#fTagList button', (els) => els.map((e) => e.getAttribute('data-rm'))), ['動物', '懶人包', '天氣']);
+  await page.fill('#fTagIn', '連');                                                 // 用過的標籤依輸入過濾
+  assert.deepEqual(await page.$$eval('#fTagSug button', (els) => els.map((e) => e.getAttribute('data-add'))), ['連假']);
+  await page.click('#fTagSug button[data-add="連假"]');
+  await page.click('#fTagList button[data-rm="天氣"]');
+  await page.fill('#fTagIn', '最後一個');                                           // 沒按 Enter 也會在儲存時加入
+  await page.click('#save');
+  await page.waitForSelector('#dlg', { state: 'hidden' });
+  assert.deepEqual(tagCalls(api, 'addItem').pop().tags, ['動物', '懶人包', '連假', '最後一個']);
+  assert.match(await page.textContent('#toast'), /已儲存 #6200001$/);
+  assert.equal(await page.isVisible('#tagChips .chip[data-tag="懶人包"]'), true);
+});
+
+test('標籤：編輯時帶出原標籤；沒改不送 tags；全部移除送空陣列', async (t) => {
+  const { page, api } = await open(t);
+  tagSample(api);
+  await connectRows(page);
+  await pick(page, '4031880');
+  await page.click('#card [data-act=edit]');
+  assert.deepEqual(await page.$$eval('#fTagList button', (els) => els.map((e) => e.getAttribute('data-rm'))), ['夜市', '連假']);
+  await page.click('#save');
+  await page.waitForSelector('#dlg', { state: 'hidden' });
+  assert.equal('tags' in tagCalls(api, 'updateItem').pop(), false);
+  await page.click('#card [data-act=edit]');
+  await page.click('#fTagIn');
+  await page.keyboard.press('Backspace');                                          // 輸入框空白時退格刪掉最後一個
+  await page.click('#fTagList button[data-rm="夜市"]');
+  await page.click('#save');
+  await page.waitForSelector('#dlg', { state: 'hidden' });
+  assert.deepEqual(tagCalls(api, 'updateItem').pop().tags, []);
+  assert.equal(await page.locator('#card .htag').count(), 0);
+});
+
+test('標籤：太長或太多時提示且不送出；新增視窗開啟時不帶上一次的標籤', async (t) => {
+  const { page, api } = await open(t);
+  await connectRows(page);
+  await page.click('#addBtn');
+  await page.fill('#fUrl', 'https://news.tvbs.com.tw/local/6200002');
+  await page.fill('#fOrig', '標籤檢查');
+  await page.fill('#fTagIn', 'x'.repeat(21));
+  await page.click('#save');
+  assert.match(await page.textContent('#err'), /太長/);
+  await page.fill('#fTagIn', Array.from({ length: 11 }, (_, i) => 't' + i).join(' '));   // 前 10 個直接加入，第 11 個留在輸入框
+  assert.equal(await page.locator('#fTagList button').count(), 10);
+  assert.equal(await page.isHidden('#err'), true);                                  // 改對後舊的錯誤訊息消失
+  await page.click('#save');
+  assert.match(await page.textContent('#err'), /最多 10 個/);
+  assert.equal(tagCalls(api, 'addItem').length, 0);
+  await page.fill('#fTagIn', '');
+  await page.click('#cancel');
+  await page.click('#addBtn');
+  assert.equal(await page.locator('#fTagList button').count(), 0);
+  assert.equal(await page.inputValue('#fTagIn'), '');
+});
+
+test('標籤：後端還沒更新時照樣存下新聞，但提示標籤沒有存到', async (t) => {
+  const { page, api } = await open(t);
+  api.st.noTags = true;
+  await connectRows(page);
+  await page.click('#addBtn');
+  await page.fill('#fUrl', 'https://news.tvbs.com.tw/local/6200003');
+  await page.fill('#fOrig', '舊後端標籤');
+  await page.fill('#fTagIn', '動物');
+  await page.click('#save');
+  await page.waitForSelector('#dlg', { state: 'hidden' });
+  assert.match(await page.textContent('#toast'), /標籤沒有存到/);
+  assert.ok(api.st.items.some((i) => i.id === '6200003'));
+});

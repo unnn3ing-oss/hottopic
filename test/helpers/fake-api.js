@@ -4,7 +4,7 @@ const DAY = 864e5;
 
 function createFakeApi(opts = {}) {
   const st = { now: opts.now || Date.UTC(2026, 9, 12, 4, 0, 0), items: [], cats: ['社會', '生活', '健康', '政治', '國際', '娛樂'],
-    sessions: new Set(), seq: 0, legacyBackend: false, refs: [], noRefs: false,   // noRefs：模擬還沒更新的舊後端（不認得任何參考動作）
+    sessions: new Set(), seq: 0, legacyBackend: false, noTags: false, refs: [], noRefs: false,   // noRefs：模擬還沒更新的舊後端（不認得任何參考動作）
       // legacyBackend：模擬還沒更新的舊後端（不認得 last／expires，回傳也沒有 expires 欄位）
      titleResult: { title: '自動帶入的原始標題', source: 'og:title' }, calls: [] };
   const ok = (data) => ({ ok: true, data });
@@ -18,12 +18,12 @@ function createFakeApi(opts = {}) {
   const mkV = (ver, t) => ({ ver, t, last: null, count: 0 });
 
   function seed(item) {
-    st.items.push(Object.assign({ cat: '生活', note: '', last: null, count: 0, created: st.now, expires: null, titles: [] }, item));
+    st.items.push(Object.assign({ cat: '生活', note: '', last: null, count: 0, created: st.now, expires: null, tags: [], titles: [] }, item));
   }
   function seedRef(r) {
     st.refs.push(Object.assign({ id: 'R' + (st.refs.length + 1), cat: '社會', orig: '原標', url: 'https://news.tvbs.com.tw/local/1', title: '改標', who: '小明', created: st.now }, r));
   }
-  const out = (x) => { const c = clone(x); if (st.legacyBackend) delete c.expires; return c; };
+  const out = (x) => { const c = clone(x); if (st.legacyBackend) delete c.expires; if (st.legacyBackend || st.noTags) delete c.tags; return c; };   // noTags：模擬有到期日、但還沒有標籤的後端
   const actions = {
     ping: () => ok({ pong: true }),
     listItems: () => ok({ items: st.items.map(out), cats: clone(st.cats) }),
@@ -52,8 +52,9 @@ function createFakeApi(opts = {}) {
     addItem(a) {
       const id = idOf(a.url) || 'N' + (st.items.length + 1);
       if (find(id)) return bad('duplicate', { existing: clone(find(id)) });
-      const item = { id, cat: a.cat, orig: a.orig, url: a.url, note: a.note || '', last: null, count: 0, created: st.now, expires: null,
+      const item = { id, cat: a.cat, orig: a.orig, url: a.url, note: a.note || '', last: null, count: 0, created: st.now, expires: null, tags: [],
         titles: (a.titles || []).map((t, i) => mkV(i + 1, t)) };
+      if (!st.legacyBackend && !st.noTags && a.tags) item.tags = a.tags.slice();
       if (!st.legacyBackend) {
         if (a.expires) item.expires = a.expires;
         if (a.last != null) { item.last = a.last; item.count = 1; }
@@ -67,6 +68,7 @@ function createFakeApi(opts = {}) {
       if ((a.edit || []).some((e) => !vers(e.ver)) || (a.remove || []).some((x) => !vers(x))) return bad('stale');
       it.cat = a.cat; it.note = a.note;
       if (!st.legacyBackend && a.expires !== undefined) it.expires = a.expires || null;
+      if (!st.legacyBackend && !st.noTags && a.tags !== undefined) it.tags = a.tags.slice();
       if (!st.legacyBackend && a.last != null && it.last == null) { it.last = a.last; it.count = 1; }   // 只對從未使用的新聞生效
       (a.edit || []).forEach((e) => { it.titles.find((v) => v.ver === e.ver).t = e.t; });
       const max = it.titles.reduce((m, v) => Math.max(m, v.ver), 0);

@@ -2,7 +2,7 @@
  * 限制：不得使用 URL、URLSearchParams、DOMParser、window、document、TextEncoder；
  * 頂層只用 var 與 function；語法限 ES2019 以內。 */
 
-var LIMITS = { url: 2000, orig: 500, title: 500, note: 5000, variants: 20, who: 30 };
+var LIMITS = { url: 2000, orig: 500, title: 500, note: 5000, variants: 20, who: 30, tag: 20, tags: 10 };
 
 // 編號 = 網址路徑中最長的一串數字（同長取先出現者）；忽略主機、帳密、埠、query、hash
 function extractId(url) {
@@ -75,6 +75,24 @@ function normalizeText(s) {
 function normalizeLine(s) {
   return normalizeText(s).replace(/\s*\n\s*/g, ' ').replace(/^\s+|\s+$/g, '');
 }
+
+// 標籤：字串或字串陣列 → 不重複的標籤陣列（依出現順序）。空白、逗號、頓號、分號、# 都當分隔；不檢查長度與數量
+var TAG_SEP = /[\s,，、;；#＃]+/;
+function parseTags(v) {
+  var parts = Array.isArray(v) ? v : [v];
+  var out = [];
+  for (var i = 0; i < parts.length; i++) {
+    var bits = normalizeText(parts[i]).split(TAG_SEP);
+    for (var j = 0; j < bits.length; j++) {
+      var t = bits[j];
+      if (t && out.indexOf(t) === -1) out.push(t);
+    }
+  }
+  return out;
+}
+
+// 試算表儲存格的寫法：以頓號串起來（讀回時用 parseTags）
+function tagsCell(tags) { return (tags || []).join('、'); }
 
 // 留言 = 小編文 + "\n" + 原文網址（與新增時附上的網址相同，不改寫成 /news/編號）；小編文為空只輸出網址
 function buildComment(item) {
@@ -229,7 +247,7 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     LIMITS: LIMITS, extractId: extractId, isHttpUrl: isHttpUrl,
     normalizeUrl: normalizeUrl, nextSerialId: nextSerialId, normalizeText: normalizeText,
-    normalizeLine: normalizeLine, buildComment: buildComment, articleKey: articleKey, nextRefId: nextRefId, shiftKey: shiftKey,
+    normalizeLine: normalizeLine, parseTags: parseTags, tagsCell: tagsCell, buildComment: buildComment, articleKey: articleKey, nextRefId: nextRefId, shiftKey: shiftKey,
     TAIPEI_OFFSET_MS: TAIPEI_OFFSET_MS, isDateStr: isDateStr, dateStrTaipei: dateStrTaipei, isExpired: isExpired, normalizeDateTimeText: normalizeDateTimeText,
     normalizeDateText: normalizeDateText, normalizeTimeText: normalizeTimeText,
     TITLE_SOURCES: TITLE_SOURCES, SITE_SUFFIXES: SITE_SUFFIXES, HTML_SCAN_LIMIT: HTML_SCAN_LIMIT,
