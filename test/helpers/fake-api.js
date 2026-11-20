@@ -21,28 +21,30 @@ function createFakeApi(opts = {}) {
     st.items.push(Object.assign({ cat: '生活', note: '', last: null, count: 0, created: st.now, expires: null, tags: [], titles: [] }, item));
   }
   function seedRef(r) {
-    st.refs.push(Object.assign({ id: 'R' + (st.refs.length + 1), cat: '社會', orig: '原標', url: 'https://news.tvbs.com.tw/local/1', title: '改標', who: '小明', created: st.now }, r));
+    st.refs.push(Object.assign({ id: 'R' + (st.refs.length + 1), cat: '社會', orig: '原標', url: 'https://news.tvbs.com.tw/local/1', title: '改標', who: '小明', created: st.now, tags: [] }, r));
   }
+  const outRef = (x) => { const c = clone(x); if (st.noTags) delete c.tags; return c; };
   const out = (x) => { const c = clone(x); if (st.legacyBackend) delete c.expires; if (st.legacyBackend || st.noTags) delete c.tags; return c; };   // noTags：模擬有到期日、但還沒有標籤的後端
   const actions = {
     ping: () => ok({ pong: true }),
     listItems: () => ok({ items: st.items.map(out), cats: clone(st.cats) }),
     fetchTitle: () => ok(clone(st.titleResult)),
-    listRefs: () => ok({ items: clone(st.refs), cats: clone(st.cats) }),
+    listRefs: () => ok({ items: st.refs.map(outRef), cats: clone(st.cats) }),
     addRef(a) {
       const dup = refDup(keyOf(a.url), a.who, null);
       if (dup) return bad('duplicate', { existing: clone(dup) });
       const id = 'R' + (st.refs.reduce((m, r) => Math.max(m, Number(r.id.slice(1)) || 0), 0) + 1);
-      const ref = { id, cat: a.cat, orig: a.orig, url: a.url, title: a.title, who: a.who, created: st.now };
+      const ref = { id, cat: a.cat, orig: a.orig, url: a.url, title: a.title, who: a.who, created: st.now, tags: (!st.noTags && a.tags) ? a.tags.slice() : [] };
       st.refs.push(ref);
-      return ok({ item: clone(ref) });
+      return ok({ item: outRef(ref) });
     },
     updateRef(a) {
       const r = st.refs.find((x) => x.id === a.id); if (!r) return bad('not_found');
       const dup = refDup(keyOf(r.url), a.who, a.id);
       if (dup) return bad('duplicate', { existing: clone(dup) });
       r.cat = a.cat; r.title = a.title; r.who = a.who;
-      return ok({ item: clone(r) });
+      if (!st.noTags && a.tags !== undefined) r.tags = a.tags.slice();
+      return ok({ item: outRef(r) });
     },
     deleteRef(a) {
       if (!st.refs.some((x) => x.id === a.id)) return bad('not_found');

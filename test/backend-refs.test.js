@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { createFakeGas } = require('./helpers/fake-gas.js');
 const { loadBackend } = require('./helpers/load-backend.js');
 
-const HEADER = ['id', '分類', '原始標題', '原文連結', '改標', '參考誰', '建立時間'];
+const HEADER = ['id', '分類', '原始標題', '原文連結', '改標', '參考誰', '建立時間', '標籤'];
 function setup(opts) {
   const gas = createFakeGas(opts);
   const be = loadBackend({ gas });
@@ -34,7 +34,7 @@ test('addRef 基本：編號 R1、R2，欄位完整，listRefs 讀得回來', ()
   assert.equal(a.ok, true);
   assert.equal(a.data.item.id, 'R1');
   assert.deepEqual({ ...a.data.item, created: typeof a.data.item.created },
-    { id: 'R1', cat: '社會', orig: '原標', url: URL1, title: '改標', who: '小明', created: 'number' });
+    { id: 'R1', cat: '社會', orig: '原標', url: URL1, title: '改標', who: '小明', created: 'number', tags: [] });
   const b = addRef(s, { who: '小華', title: '另一版' });
   assert.equal(b.data.item.id, 'R2');
   const items = s.list().items;
@@ -84,7 +84,7 @@ test('updateRef：改分類／改標／人；原標與網址不變', () => {
   addRef(s);
   const u = s.call('updateRef', { id: 'R1', cat: '生活', title: '新改標', who: '小華' });
   assert.equal(u.ok, true);
-  assert.deepEqual({ ...u.data.item, created: 0 }, { id: 'R1', cat: '生活', orig: '原標', url: URL1, title: '新改標', who: '小華', created: 0 });
+  assert.deepEqual({ ...u.data.item, created: 0 }, { id: 'R1', cat: '生活', orig: '原標', url: URL1, title: '新改標', who: '小華', created: 0, tags: [] });
   const it = s.list().items[0];
   assert.deepEqual([it.cat, it.title, it.who, it.orig, it.url], ['生活', '新改標', '小華', '原標', URL1]);
 });
@@ -148,4 +148,37 @@ test('編號不重複使用：被略過的列（參考誰空白）的編號也�
   addRef(s);
   s.gas.seedRows('參考', [['R7', '社會', '原', 'https://x.tw/a/7', '改', '', new Date(Date.UTC(2026, 9, 12, 1, 0, 0))]]);
   assert.equal(addRef(s, { who: '小華' }).data.item.id, 'R8');
+});
+
+/* ---------- 標籤 ---------- */
+const refCell = (s, r, c) => s.gas.dump('參考')[r - 1][c - 1];
+
+test('addRef 帶標籤：整理後存成頓號字串；listRefs 讀得回來', () => {
+  const s = setup();
+  assert.deepEqual(addRef(s, { tags: ['動物', '#懶人包 動物'] }).data.item.tags, ['動物', '懶人包']);
+  assert.equal(refCell(s, 2, 8), '動物、懶人包');
+  assert.deepEqual(s.list().items[0].tags, ['動物', '懶人包']);
+});
+
+test('updateRef 的標籤：沒帶＝不動、設定、空陣列＝清除；不合規 bad_request', () => {
+  const s = setup(); addRef(s, { tags: ['a'] });
+  const upd = (extra) => s.call('updateRef', Object.assign({ id: 'R1', cat: '社會', title: '改標', who: '小明' }, extra));
+  assert.deepEqual(upd({}).data.item.tags, ['a']);
+  assert.deepEqual(upd({ tags: ['b', 'c'] }).data.item.tags, ['b', 'c']);
+  assert.equal(refCell(s, 2, 8), 'b、c');
+  assert.deepEqual(upd({ tags: [] }).data.item.tags, []);
+  assert.equal(refCell(s, 2, 8), '');
+  for (const tags of ['a', [1], ['x'.repeat(21)], Array.from({ length: 11 }, (_, i) => 't' + i)]) {
+    assert.equal(code(upd({ tags })), 'bad_request', JSON.stringify(tags));
+    assert.equal(code(addRef(s, { who: '新人' + JSON.stringify(tags).length, tags })), 'bad_request', JSON.stringify(tags));
+  }
+  assert.equal(s.list().items.length, 1);
+});
+
+test('舊的「參考」分頁只有 7 欄：第一次讀取補上「標籤」標題，舊資料標籤為空陣列', () => {
+  const s = setup(); s.call('listRefs');
+  s.gas.spreadsheet.getSheetByName('參考').getRange(1, 8).setValues([['']]);
+  s.gas.seedRows('參考', [['R1', '社會', '原標', URL1, '改標', '小明', new Date(Date.UTC(2026, 8, 1))]]);
+  assert.deepEqual(s.list().items[0].tags, []);
+  assert.equal(refCell(s, 1, 8), '標籤');
 });
