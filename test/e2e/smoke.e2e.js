@@ -1928,3 +1928,117 @@ test('標籤：後端還沒更新時照樣存下新聞，但提示標籤沒有�
   assert.match(await page.textContent('#toast'), /標籤沒有存到/);
   assert.ok(api.st.items.some((i) => i.id === '6200003'));
 });
+
+/* ---------- 標籤：搜尋框與前 5 名、參考模式 ---------- */
+const tagChipNames = (page) => page.$$eval('#tagChips .chip', (els) => els.map((e) => e.dataset.tag));
+function manyTags(api) {   // 7 個標籤，掛的文章數 a5 > b4 > c3 > d2 > e2 > f1 > g1
+  const plan = { a: 5, b: 4, c: 3, d: 2, e: 2, f: 1, g: 1 };
+  for (let i = 0; i < 5; i++) {
+    api.seed({ id: String(6300000 + i), url: 'https://news.tvbs.com.tw/local/' + (6300000 + i), orig: '標籤樣本 ' + i,
+      tags: Object.keys(plan).filter((t) => i < plan[t]) });
+  }
+}
+
+test('標籤篩選列：只列「全部」＋文章數前 5 名；搜尋框可找其餘標籤，Enter 選第一個，選中的標籤一直看得到', async (t) => {
+  const { page, api } = await open(t, { sample: false });
+  manyTags(api);
+  await connectRows(page);
+  assert.deepEqual(await tagChipNames(page), ['全部', 'a', 'b', 'c', 'd', 'e']);
+  await page.fill('#tagQ', 'g');
+  assert.deepEqual(await tagChipNames(page), ['全部', 'g']);
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'tagQ');       // 打字時焦點留在搜尋框
+  await page.press('#tagQ', 'Enter');
+  assert.deepEqual(await rowIds(page), ['6300000']);
+  await page.fill('#tagQ', '');
+  assert.deepEqual(await tagChipNames(page), ['全部', 'g', 'a', 'b', 'c', 'd', 'e']);   // 不在前 5 名的已選標籤排在最前
+  assert.equal(await page.getAttribute('#tagChips .chip[data-tag="g"]', 'aria-pressed'), 'true');
+  await page.fill('#tagQ', '不存在');
+  assert.match(await page.locator('#tagChips').textContent(), /沒有符合的標籤/);
+  await page.press('#tagQ', 'Escape');
+  assert.equal(await page.inputValue('#tagQ'), '');
+  await page.click('#tagChips .chip[data-tag="全部"]');
+  assert.equal((await rowIds(page)).length, 5);
+});
+
+test('新增視窗的「用過的」最多 5 個，新聞庫與參考的標籤共用', async (t) => {
+  const { page, api } = await open(t, { sample: false });
+  manyTags(api);
+  api.seedRef({ id: 'R1', tags: ['只在參考'] });
+  await connectRows(page);
+  await page.click('#modeRef');                                                     // 參考資料在第一次進參考模式時才載入
+  await page.waitForSelector('.row[data-id="R1"]');
+  await page.click('#modeLib');
+  await page.click('#addBtn');
+  assert.deepEqual(await page.$$eval('#fTagSug button', (els) => els.map((e) => e.dataset.add)), ['a', 'b', 'c', 'd', 'e']);
+  await page.fill('#fTagIn', '參考');
+  assert.deepEqual(await page.$$eval('#fTagSug button', (els) => els.map((e) => e.dataset.add)), ['只在參考']);
+});
+
+test('參考模式的標籤：篩選列只看參考的標籤、可與人併用、搜尋與卡片點選；兩種模式各記各的選擇', async (t) => {
+  const { page, api } = await open(t);
+  tagSample(api);
+  seedRefSample(api);
+  api.st.refs.find((r) => r.id === 'R1').tags = ['夜市'];
+  api.st.refs.find((r) => r.id === 'R3').tags = ['汽車', '保養'];
+  api.st.refs.find((r) => r.id === 'R4').tags = ['保養', '冬季'];
+  await connectRows(page);
+  await page.click('#tagChips .chip[data-tag="連假"]');
+  await page.fill('#tagQ', '連');
+  await page.click('#modeRef');
+  await page.waitForSelector('.row[data-id="R1"]');
+  assert.equal(await page.inputValue('#tagQ'), '');                                // 換模式清掉標籤搜尋
+  assert.deepEqual(await tagChipNames(page), ['全部', '保養', '冬季', '夜市', '汽車']);   // 只列參考的標籤，不含新聞庫的「連假」
+  assert.deepEqual(await page.$$eval('.row[data-id="R3"] .htag', (els) => els.map((e) => e.textContent)), ['#汽車', '#保養']);
+  await page.click('#tagChips .chip[data-tag="保養"]');
+  assert.deepEqual(await rowIds(page), ['R4', 'R3']);
+  await page.click('.chip[data-who="小明"]');                                       // 與人併用
+  assert.deepEqual(await rowIds(page), ['R3']);
+  assert.equal(await page.locator('#tagChips .chip[data-tag="保養"] small').textContent(), '1');
+  await page.click('.chip[data-who="全部"]');
+  await page.click('#tagChips .chip[data-tag="全部"]');
+  await page.fill('#q', '冬季');                                                    // 搜尋比對標籤（「冬季」只出現在標籤裡）
+  assert.deepEqual(await rowIds(page), ['R4']);
+  await page.fill('#q', '');
+  await pick(page, 'R3');
+  await page.click('#card .htag[data-tag="汽車"]');
+  assert.deepEqual(await rowIds(page), ['R3']);
+  await page.click('#modeLib');
+  assert.equal(await page.getAttribute('#tagChips .chip[data-tag="連假"]', 'aria-pressed'), 'true');   // 新聞庫的選擇還在
+});
+
+test('參考模式：新增與編輯可設定標籤，沒改不送；後端還沒更新時提示', async (t) => {
+  const { page, api } = await open(t);
+  seedRefSample(api);
+  await connectRows(page);
+  await page.click('#modeRef');
+  await page.waitForSelector('.row[data-id="R1"]');
+  await page.click('#addBtn');
+  assert.equal(await page.isVisible('#fTagIn'), true);
+  await page.fill('#fUrl', 'https://news.tvbs.com.tw/local/6400001');
+  await page.fill('#fOrig', '參考標籤');
+  await page.fill('#fWho', '小美');
+  await page.fill('#fTitle', '參考改標');
+  await page.fill('#fTagIn', '動物 懶人包');
+  await page.click('#save');
+  await page.waitForSelector('#dlg', { state: 'hidden' });
+  assert.deepEqual(tagCalls(api, 'addRef').pop().tags, ['動物', '懶人包']);
+  const id = api.st.refs[api.st.refs.length - 1].id;
+  assert.deepEqual(await page.$$eval('#card .htag', (els) => els.map((e) => e.textContent)), ['#動物', '#懶人包']);
+  await page.click('#card [data-act=redit]');
+  assert.deepEqual(await page.$$eval('#fTagList button', (els) => els.map((e) => e.dataset.rm)), ['動物', '懶人包']);
+  await page.click('#save');
+  await page.waitForSelector('#dlg', { state: 'hidden' });
+  assert.equal('tags' in tagCalls(api, 'updateRef').pop(), false);
+  await page.click('#card [data-act=redit]');
+  await page.click('#fTagList button[data-rm="動物"]');
+  await page.click('#save');
+  await page.waitForSelector('#dlg', { state: 'hidden' });
+  assert.deepEqual(tagCalls(api, 'updateRef').pop().tags, ['懶人包']);
+  assert.deepEqual(api.st.refs.find((r) => r.id === id).tags, ['懶人包']);
+  api.st.noTags = true;
+  await page.click('#card [data-act=redit]');
+  await page.fill('#fTagIn', '新標籤');
+  await page.click('#save');
+  await page.waitForSelector('#dlg', { state: 'hidden' });
+  assert.match(await page.textContent('#toast'), /標籤沒有存到/);
+});

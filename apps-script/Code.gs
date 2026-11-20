@@ -8,7 +8,7 @@ var HEADERS = {
   news: ['id', '分類', '原始標題', '原文連結', '小編文', '上次使用時間', '使用次數', '建立時間', '到期日', '標籤'],
   edits: ['新聞id', '版本號', '標題', '上次使用時間', '使用次數', '建立時間'],
   cats: ['分類'],
-  refs: ['id', '分類', '原始標題', '原文連結', '改標', '參考誰', '建立時間']
+  refs: ['id', '分類', '原始標題', '原文連結', '改標', '參考誰', '建立時間', '標籤']
 };
 var DEFAULT_CATS = ['社會', '生活', '健康', '政治', '國際', '娛樂'];
 var DATE_FORMAT = 'yyyy/MM/dd HH:mm';
@@ -93,7 +93,7 @@ function writeText_(sheet, row, col, values) {
   writeBlock_(sheet, row, col, values[0].map(function () { return FMT_TEXT; }), values);
 }
 function newsFormats_() { return [FMT_TEXT, FMT_TEXT, FMT_TEXT, FMT_TEXT, FMT_TEXT, DATE_FORMAT, FMT_NUM, DATE_FORMAT, FMT_TEXT, FMT_TEXT]; }
-function refFormats_() { return [FMT_TEXT, FMT_TEXT, FMT_TEXT, FMT_TEXT, FMT_TEXT, FMT_TEXT, DATE_FORMAT]; }
+function refFormats_() { return [FMT_TEXT, FMT_TEXT, FMT_TEXT, FMT_TEXT, FMT_TEXT, FMT_TEXT, DATE_FORMAT, FMT_TEXT]; }
 function editFormats_() { return [FMT_TEXT, FMT_NUM, FMT_TEXT, DATE_FORMAT, FMT_NUM, DATE_FORMAT]; }
 
 function ensureSheet_(ss, name, headers, defaults) {
@@ -182,11 +182,13 @@ function refsSheet_(db) { return ensureSheet_(db.ss, SHEET.refs, HEADERS.refs); 
 // 手動編輯造成的壞資料（空 id、重複 id、改標或參考誰空白）略過
 function readRefs_(db) {
   var items = [], byId = {}, rowOf = {}, rawIds = [];   // rawIds：id 欄所有不空白的值（含被略過的列），算新編號時一併避開
-  rows_(refsSheet_(db), 7).forEach(function (r, i) {
+  var sheet = refsSheet_(db), all = rows_(sheet, 8);
+  if (str_(all.header[7]).trim() !== HEADERS.refs[7]) writeText_(sheet, 1, 8, [[HEADERS.refs[7]]]);   // 舊試算表補上「標籤」標題
+  all.forEach(function (r, i) {
     var id = str_(r[0]).trim(), title = str_(r[4]), who = str_(r[5]).trim();
     if (id) rawIds.push(id);
     if (!id || byId[id] || !title.trim() || !who) return;
-    var item = { id: id, cat: str_(r[1]).trim(), orig: str_(r[2]), url: str_(r[3]), title: title, who: who, created: toMs_(r[6]) || 0 };
+    var item = { id: id, cat: str_(r[1]).trim(), orig: str_(r[2]), url: str_(r[3]), title: title, who: who, created: toMs_(r[6]) || 0, tags: parseTags(str_(r[7])) };
     byId[id] = item; rowOf[id] = i + 2; items.push(item);
   });
   return { items: items, byId: byId, rowOf: rowOf, rawIds: rawIds };
@@ -401,7 +403,7 @@ function addRef_(args) {
   var url = normalizeUrl(reqString_(args.url));
   var orig = normalizeLine(reqString_(args.orig));
   var cat = reqString_(args.cat).trim();
-  var title = reqRefTitle_(args.title), who = reqWho_(args.who);
+  var title = reqRefTitle_(args.title), who = reqWho_(args.who), tags = optTags_(args.tags) || [];
   if (!url || !orig || !cat || orig.length > LIMITS.orig) failure_('bad_request');
   var db = db_();
   return withLock_(function () {
@@ -413,15 +415,15 @@ function addRef_(args) {
     var props = PropertiesService.getScriptProperties();
     var id = nextRefId(refs.rawIds.concat(['R' + (Number(props.getProperty('REF_SEQ')) || 0)]));
     var now = new Date(), sheet = refsSheet_(db);
-    writeBlock_(sheet, sheet.getLastRow() + 1, 1, refFormats_(), [[id, cat, orig, url, title, who, now]]);
+    writeBlock_(sheet, sheet.getLastRow() + 1, 1, refFormats_(), [[id, cat, orig, url, title, who, now, tagsCell(tags)]]);
     props.setProperty('REF_SEQ', id.slice(1));
-    return { item: { id: id, cat: cat, orig: orig, url: url, title: title, who: who, created: now.getTime() } };
+    return { item: { id: id, cat: cat, orig: orig, url: url, title: title, who: who, created: now.getTime(), tags: tags } };
   });
 }
 
 function updateRef_(args) {
   var id = reqString_(args.id), cat = reqString_(args.cat).trim();
-  var title = reqRefTitle_(args.title), who = reqWho_(args.who);
+  var title = reqRefTitle_(args.title), who = reqWho_(args.who), tags = optTags_(args.tags);   // tags 沒帶＝不動
   if (!cat) failure_('bad_request');
   var db = db_();
   return withLock_(function () {
@@ -431,6 +433,7 @@ function updateRef_(args) {
     var dup = refDuplicate_(refs, articleKey(item.url), who, id);
     if (dup) failure_('duplicate', { existing: dup });
     writeText_(refsSheet_(db), refs.rowOf[id], 2, [[cat, item.orig, item.url, title, who]]);   // 第 2–6 欄一次寫入（原標與網址寫回原值）
+    if (tags) { writeText_(refsSheet_(db), refs.rowOf[id], 8, [[tagsCell(tags)]]); item.tags = tags; }
     item.cat = cat; item.title = title; item.who = who;
     return { item: item };
   });
